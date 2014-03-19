@@ -38,8 +38,8 @@ int main(int argc, char **argv)
   uint32_t speed = 1000000;
   uint8_t bpw = BPW;
 
-  /* buf[0] = 0xF0F0; */
-  /* buf[1] = 0x0000; */
+  buf[0] = 0xF0F0;
+  buf[1] = 0x0000;
   /* buf[2] = 0x0001; */
   /* buf[3] = 0x0FFF; */
   /* buf[4] = 0x000F; */
@@ -50,10 +50,10 @@ int main(int argc, char **argv)
   /*   buf[i] = PWMTable[i+1]; */
   /* } */
 
-  int i;
-  for (i = 0; i < channels ; i++) {
-    buf[i] = 0x0000;
-  }
+  /* int i; */
+  /* for (i = 0; i < channels ; i++) { */
+  /*   buf[i] = 0x0000; */
+  /* } */
 
     file = open("/dev/spidev1.0",O_WRONLY); //dev
       if(file < 0) {
@@ -78,10 +78,11 @@ int main(int argc, char **argv)
       }
       
       int loopcounter = 0;
-    while (1) {  
+      //      while (loopcounter < 1) {  
+      while (1) {  
 
-      int numbytes = sizeof(buf[0]) * 48;
-      //printf("sending %d bytes\n",numbytes);
+      int numbytes = sizeof(buf[0]) * 2;
+      printf("sending %d bytes\n",sizeof(buf[0]) * numbytes);
     
     if(write(file,&buf[0], numbytes) != numbytes)
       {
@@ -91,11 +92,11 @@ int main(int argc, char **argv)
       }
     
     // walk the bit
-    //printf("loopcounter: %d mod 32+16: %d\n",loopcounter , (loopcounter % 32)+16);
+    printf("loopcounter: %d mod 32+16: %d\n",loopcounter , (loopcounter % 32)+16);
     buf[(loopcounter % 32)+16] = 0;
-    buf[((loopcounter+1) % 32)+16 ] = 0x5555;
+    buf[((loopcounter+1) % 32)+16 ] = 0xFFFF;
     loopcounter++;
-    usleep(30000);
+    usleep(100000);
   }
     close(file);
 }
