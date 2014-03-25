@@ -1,11 +1,11 @@
-
-
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <sys/ioctl.h>
 #include <linux/types.h>
 #include <linux/spi/spidev.h>
@@ -31,87 +31,124 @@ const unsigned int PWMTable[] = {
   3284, 3514, 3761, 4024, 4095};
 
 
-int main(int argc, char **argv)
-{ 
-  int file;
-  uint16_t buf[channels];
-  uint32_t speed = 1000000;
-  uint8_t bpw = BPW;
-  uint8_t mode = 0;
-  /* buf[0] = 0xF0F0; */
-  /* buf[1] = 0x0010; */
-  /* buf[2] = 0x0001; */
-  /* buf[3] = 0x0FFF; */
-  /* buf[4] = 0x000F; */
-  /* buf[5] = 0x00FF; */
-  
-  /* int i; */
-  /* for (i = 0; i < channels ; i++) { */
-  /*   buf[i] = PWMTable[i+1]; */
-  /* } */
+uint16_t buf[channels];
+int file;
+uint32_t speed = 1000000;
+uint8_t bpw = BPW;
+uint8_t mode = 0;
 
-  int i;
-  for (i = 0; i < channels ; i++) {
-    buf[i] = 0x0000;
-  }
 
-    file = open("/dev/spidev1.0",O_WRONLY); //dev
-      if(file < 0) {
-        perror ("Error:");
-      return 1;
+void print_usage(void) {
+  printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
     }
-      if (ioctl(file,SPI_IOC_WR_MAX_SPEED_HZ,&speed) < 0) {
-	perror ("Error setting speed");
-      }
-      if (ioctl(file,SPI_IOC_RD_MAX_SPEED_HZ,&speed) < 0) {
-	perror ("Error reading speed");
-      } else {
-	printf("speed is %ul\n",speed);
-      }
-      if (ioctl(file,SPI_IOC_WR_BITS_PER_WORD,&bpw) < 0) {
-	perror ("Error setting bpw");
-      } 
-      if (ioctl(file,SPI_IOC_RD_BITS_PER_WORD,&bpw) < 0) {
-	perror ("Error reading bpw");
-      } else {
-	printf("bpw is %d\n",bpw);
-      }
 
-      /* if (ioctl(file,SPI_IOC_WR_MODE,&mode) < 0) { */
-      /* 	perror ("Error setting mode"); */
-      /* }  */
-      if (ioctl(file,SPI_IOC_RD_MODE,&mode) < 0) {
-	perror ("Error reading mode"); }
-      else {
-	printf("mode is %d\n",mode);
-      }
-
-      
+int walk(void) {
       int loopcounter = 0;
       while (loopcounter < 1000) {  
-        //while (1) {  
 
-        //int numbytes = sizeof(buf[0]) * 6;
       int numbytes = sizeof(buf[0]) * channels;
-      //      printf("sending %d bytes\n",sizeof(buf[0]) * numbytes);
-      printf("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
-          
+      printf("sending %d bytes\n",sizeof(buf[0]) * numbytes);
+      //printf("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
       
-      if(write(file,&buf, numbytes) != numbytes)
-      {
+      if(write(file,&buf, numbytes) != numbytes) {
         perror("Error writing spi:");
-          //        fprintf(stderr, "There was an error writing to the spi device\n");
-        return 1;
-      }
+        //        fprintf(stderr, "There was an error writing to the spi device\n");
+        return 1; }
     
     // walk the bit
     printf("loopcounter: %d mod 32+16: %d\n",loopcounter , (loopcounter % 32)+16);
     buf[(loopcounter % 32)+16] = 0;
     buf[((loopcounter+1) % 32)+16 ] = 0x055;
     loopcounter++;
-    usleep(100000);
+    usleep(50000);
   }
-    close(file);
+      return 0;
+}
+
+int write_led_buffer(void) {
+      int numbytes = sizeof(buf[0]) * channels;
+
+      if(write(file,&buf, numbytes) != numbytes)
+      {
+        perror("Error writing spi:");
+        return 1; }
+    return 0;
+}
+
+int spi_init(void) {
+  int i;
+  for (i = 0; i < channels ; i++) {
+    buf[i] = 0x0000;  }
+  
+  file = open("/dev/spidev1.0",O_WRONLY); //dev
+  if(file < 0) {
+    perror ("Error:");
+    return 1;
+  }
+  if (ioctl(file,SPI_IOC_WR_MAX_SPEED_HZ,&speed) < 0) {
+    perror ("Error setting speed");
+  }
+  if (ioctl(file,SPI_IOC_RD_MAX_SPEED_HZ,&speed) < 0) {
+    perror ("Error reading speed");
+  } else {
+    printf("speed is %ul\n",speed);
+  }
+  if (ioctl(file,SPI_IOC_WR_BITS_PER_WORD,&bpw) < 0) {
+    perror ("Error setting bpw");
+  } 
+  if (ioctl(file,SPI_IOC_RD_BITS_PER_WORD,&bpw) < 0) {
+    perror ("Error reading bpw");
+  } else {
+    printf("bpw is %d\n",bpw);
+  }
+
+  /* if (ioctl(file,SPI_IOC_WR_MODE,&mode) < 0) { */
+  /* 	perror ("Error setting mode"); */
+  /* }  */
+  if (ioctl(file,SPI_IOC_RD_MODE,&mode) < 0) {
+    perror ("Error reading mode"); }
+  else {
+    printf("mode is %d\n",mode);
+  }
+}
+
+int main(int argc, char *argv[])
+{ 
+  uint32_t speed = 1000000;
+  uint8_t bpw = BPW;
+  uint8_t mode = 0;
+
+  int c = 0;
+  int cvalue = -1; // channel to set
+  int gvalue = -1; // to this greyscale value
+
+  opterr = 0;
+     
+  while ((c = getopt (argc, argv, "wc:g:")) != -1) {
+    switch (c) {
+    case 'w': // walk
+      printf("got w\n");
+      spi_init();
+      walk();
+      exit(0);
+      break;
+    case 'c':
+      cvalue = atoi(optarg);
+      break;
+    case 'g':
+      gvalue = atoi(optarg);
+      break;
+    default:
+      print_usage();
+      exit(EXIT_FAILURE);
+    }
+  }
+  
+  spi_init();
+      buf[cvalue] = gvalue;
+      write_led_buffer();
+      
+      close(file);
 }
 /*
 # Local Variables:
