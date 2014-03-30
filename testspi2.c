@@ -14,11 +14,20 @@
 #define tlc5947_channels 24
 #define channels (tlc5947_count * tlc5947_channels)
 #define BPW 12 // bits per word
-
+#define DIGITS 4 // 4 7-segment displays attached
+#define SEGMENTS 7
 /* brown - p9_22 - clock
    green - p9_17 - /cs - chip select, latch
    grey -  p9_18 - data out of BBB */
 
+
+/* pinout taken from http://derekmolloy.ie/beaglebone/beaglebone-gpio-programming-on-arm-embedded-linux/
+
+   SPI0_cs0  p9_17   /cs green
+   SPI0_d1   p9_18   MISO (master in slave out) data out grey
+   SPI0_d0   p9_21   MOSI (master out slave in) data in nc
+   SPI0_sclk p9_22   clock brown
+*/
 
 const unsigned int PWMTable[] = {
   0,    1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 13,
@@ -30,6 +39,47 @@ const unsigned int PWMTable[] = {
   1665, 1782, 1907, 2042, 2185, 2339, 2503, 2679, 2867, 3069,
   3284, 3514, 3761, 4024, 4095};
 
+typedef struct digit_t {uint8_t segment[SEGMENTS];} digit_t;
+
+                   ///segment  A  B  C  D  E  F  G
+digit_t const digit0 = { .segment = {47,46,45,44,43,42,41}};
+digit_t const digit1 = { .segment = {39,38,37,36,35,34,33}};
+digit_t const digit2 = { .segment = {31,30,29,28,27,26,25}};
+digit_t const digit3 = { .segment = {23,22,21,20,19,18,17}};
+
+// alternative way to declare segments
+int segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,34,33},
+                      {31,30,29,28,27,26,25}, {23,22,21,20,19,18,17}};
+
+int dp0 = 40;
+int dp1 = 32;
+int dp2 = 24;
+int dp3 = 16;
+
+///segment  A  B  C  D  E  F  G
+/* int const f0[] = {1, 1, 1, 1, 1, 1, 0}; */
+/* int const f1[] = {0, 1, 1, 0, 0, 0, 0}; */
+/* int const f2[] = {1, 1, 0, 1, 1, 0, 1}; */
+/* int const f3[] = {1, 1, 1, 1, 0, 0, 1}; */
+/* int const f4[] = {0, 1, 1, 0, 0, 1, 1}; */
+/* int const f5[] = {1, 0, 1, 1, 0, 1, 1}; */
+/* int const f6[] = {1, 1, 1, 1, 1, 0, 1}; */
+/* int const f7[] = {1, 1, 1, 0, 0, 0, 0}; */
+/* int const f8[] = {1, 1, 1, 1, 1, 1, 1}; */
+/* int const f9[] = {1, 1, 1, 1, 0, 1, 1}; */
+
+uint16_t const f[10][10] = {
+  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000},
+  {0x000, 0xFFF, 0xFFF, 0x000, 0x000, 0x000, 0x000},
+  {0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF, 0x000, 0xFFF},
+  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000, 0x000, 0xFFF},
+  {0x000, 0xFFF, 0xFFF, 0x000, 0x000, 0xFFF, 0xFFF},
+  {0xFFF, 0x000, 0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF},
+  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000, 0xFFF},
+  {0xFFF, 0xFFF, 0xFFF, 0x000, 0x000, 0x000, 0x000},
+  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF},
+  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF}
+};
 
 uint16_t buf[channels];
 int file;
@@ -37,7 +87,13 @@ uint32_t speed = 1000000;
 uint8_t bpw = BPW;
 uint8_t mode = 0;
 
+int c = 0;
+int cvalue = -1; // channel to set
+int gvalue = -1; // to this greyscale value
+int dvalue = -1; // digit to set
+int vvalue = -1; // value to set digit to
 
+ 
 void print_usage(void) {
   printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
     }
@@ -112,19 +168,30 @@ int spi_init(void) {
   }
 }
 
+int set_digit(int digit, int val, uint16_t greyscale) {
+  if ((val < 0) || (val > 9)) {
+    printf("Error: val must be in the range 0-9\n");
+    exit(EXIT_FAILURE);}
+  if ((digit < 0) || (digit > DIGITS-1)) {
+    printf("Error: digit  must be in the range 0-%d\n", DIGITS - 1 );
+    exit(EXIT_FAILURE);}
+  int i;
+  for (i = 0; i < SEGMENTS ; i++) {
+    //buf[digit.segment[i]] = f[val][i] && greyscale;
+    buf[segments[digit][i]] = f[val][i] && greyscale;
+  }
+
+}
+
 int main(int argc, char *argv[])
 { 
   uint32_t speed = 1000000;
   uint8_t bpw = BPW;
   uint8_t mode = 0;
 
-  int c = 0;
-  int cvalue = -1; // channel to set
-  int gvalue = -1; // to this greyscale value
-
   opterr = 0;
      
-  while ((c = getopt (argc, argv, "wc:g:")) != -1) {
+  while ((c = getopt (argc, argv, "wc:g:d:v:")) != -1) {
     switch (c) {
     case 'w': // walk
       printf("got w\n");
@@ -138,6 +205,12 @@ int main(int argc, char *argv[])
     case 'g':
       gvalue = atoi(optarg);
       break;
+    case 'd':
+      dvalue = atoi(optarg);
+      break;
+    case 'v':
+      vvalue = atoi(optarg);
+      break;
     default:
       print_usage();
       exit(EXIT_FAILURE);
@@ -145,10 +218,21 @@ int main(int argc, char *argv[])
   }
   
   spi_init();
-      buf[cvalue] = gvalue;
-      write_led_buffer();
-      
-      close(file);
+
+  if (dvalue > -1) {
+    // setting a digit to a value
+    if ((vvalue < 0) || (gvalue < 0)) {
+      printf("Error: -g and -v must both be set to use the digit option");
+      exit(EXIT_FAILURE);
+    }
+    set_digit(dvalue,vvalue,gvalue);
+  } else {
+    /// assuming we are setting individual segments
+    buf[cvalue] = gvalue;
+    write_led_buffer();
+  }
+  close(file);
+
 }
 /*
 # Local Variables:
