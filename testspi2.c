@@ -9,6 +9,7 @@
 #include <sys/ioctl.h>
 #include <linux/types.h>
 #include <linux/spi/spidev.h>
+#include <time.h>
 
 #define tlc5947_count 2
 #define tlc5947_channels 24
@@ -96,6 +97,9 @@ int walk_option = 0; //by default don't run the walk
 int clock_option = 0; //
 int help_option = 0;
 
+
+int set_digit(int digit, int val, uint16_t greyscale);
+
 void usage(void) {
   printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
   printf("                 -h    show this help message\n");
@@ -103,7 +107,28 @@ void usage(void) {
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
     }
 
-void clock() {
+int nthdigit(int x, int n)
+{
+    static int powersof10[] = {1, 10, 100, 1000};
+    return ((x / powersof10[n]) % 10);
+}
+
+void clockfn() {
+  printf("in clock function\n");
+  time_t t = time(NULL);
+  struct tm tm;
+  while(1) {
+    t = time(NULL);
+    tm = *localtime(&t);
+    printf("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
+    printf("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
+    set_digit(3,nthdigit(tm.tm_hour,1),1000);
+    set_digit(2,nthdigit(tm.tm_hour,0),1000);
+    set_digit(1,nthdigit(tm.tm_min,1),1000);
+    set_digit(0,nthdigit(tm.tm_min,0),1000);
+    write_led_buffer();
+    usleep(500000);
+  }
 
 }
 
@@ -184,7 +209,7 @@ int spi_init(void) {
 int set_digit(int digit, int val, uint16_t greyscale) {
   printf("greyscale: %d\n",greyscale);
   if ((val < 0) || (val > 9)) {
-    printf("Error: val must be in the range 0-9\n");
+    printf("Error: val was %d but must be in the range 0-9.\n", val);
     exit(EXIT_FAILURE);}
   if ((digit < 0) || (digit > DIGITS-1)) {
     printf("Error: digit  must be in the range 0-%d\n", DIGITS - 1 );
@@ -250,7 +275,7 @@ int main(int argc, char *argv[])
   }
 
   if (clock_option == 1) {
-    clock();
+    clockfn();
     exit(0);
   }
 
