@@ -54,13 +54,15 @@ typedef struct digit_t {uint8_t segment[SEGMENTS];} digit_t;
 /* digit_t const digit3 = { .segment = {23,22,21,20,19,18,17}}; */
 
 // alternative way to declare segments
-int segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,34,33},
+int const segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,34,33},
                       {31,30,29,28,27,26,25}, {23,22,21,20,19,18,17}};
 
-int dp0 = 40;
-int dp1 = 32;
-int dp2 = 24;
-int dp3 = 16;
+/* int dp0 = 40; */
+/* int dp1 = 32; */
+/* int dp2 = 24; */
+/* int dp3 = 16; */
+
+int const decimalpoint[DIGITS] = {40,32,24,16};
 
          ///segment  A  B  C  D  E  F  G
 /* int const f0[] = {1, 1, 1, 1, 1, 1, 0}; */
@@ -129,7 +131,7 @@ void clockfn() {
   while(1) {
     t = time(NULL);
     tm = *localtime(&t);
-    current_hour = tm.tm_hour % 12;
+    current_hour = (tm.tm_hour <=12 ) ? tm.tm_hour : tm.tm_hour - 12;
     debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
     debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
 
@@ -142,6 +144,7 @@ void clockfn() {
     set_digit(2,nthdigit(current_hour,0),1000);
     set_digit(1,nthdigit(tm.tm_min,1),1000);
     set_digit(0,nthdigit(tm.tm_min,0),1000);
+    buf[decimalpoint[0]] = (tm.tm_sec % 2) * 1000;
     write_led_buffer();
     usleep(500000);
   }
