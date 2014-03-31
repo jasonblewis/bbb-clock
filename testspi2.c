@@ -42,10 +42,10 @@ const unsigned int PWMTable[] = {
 typedef struct digit_t {uint8_t segment[SEGMENTS];} digit_t;
 
                    ///segment  A  B  C  D  E  F  G
-digit_t const digit0 = { .segment = {47,46,45,44,43,42,41}};
-digit_t const digit1 = { .segment = {39,38,37,36,35,34,33}};
-digit_t const digit2 = { .segment = {31,30,29,28,27,26,25}};
-digit_t const digit3 = { .segment = {23,22,21,20,19,18,17}};
+/* digit_t const digit0 = { .segment = {47,46,45,44,43,42,41}}; */
+/* digit_t const digit1 = { .segment = {39,38,37,36,35,34,33}}; */
+/* digit_t const digit2 = { .segment = {31,30,29,28,27,26,25}}; */
+/* digit_t const digit3 = { .segment = {23,22,21,20,19,18,17}}; */
 
 // alternative way to declare segments
 int segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,34,33},
@@ -68,7 +68,7 @@ int dp3 = 16;
 /* int const f8[] = {1, 1, 1, 1, 1, 1, 1}; */
 /* int const f9[] = {1, 1, 1, 1, 0, 1, 1}; */
 
-uint16_t const f[10][10] = {
+uint16_t const f[10][SEGMENTS] = {
   {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000},
   {0x000, 0xFFF, 0xFFF, 0x000, 0x000, 0x000, 0x000},
   {0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF, 0x000, 0xFFF},
@@ -83,16 +83,16 @@ uint16_t const f[10][10] = {
 
 uint16_t buf[channels];
 int file;
-uint32_t speed = 1000000;
+uint32_t speed = 1000000; /* max speed to run the SPI bus at in MHz */
 uint8_t bpw = BPW;
 uint8_t mode = 0;
 
 int c = 0;
 int cvalue = -1; // channel to set
-int gvalue = -1; // to this greyscale value
+uint16_t gvalue = -1; // to this greyscale value
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
-
+int walk_value = 0; //by default don't run the walk
  
 void print_usage(void) {
   printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
@@ -103,7 +103,7 @@ int walk(void) {
       while (loopcounter < 1000) {  
 
       int numbytes = sizeof(buf[0]) * channels;
-      printf("sending %d bytes\n",sizeof(buf[0]) * numbytes);
+      //printf("sending %d bytes\n",sizeof(buf[0]) * numbytes);
       //printf("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
       
       if(write(file,&buf, numbytes) != numbytes) {
@@ -112,9 +112,9 @@ int walk(void) {
         return 1; }
     
     // walk the bit
-    printf("loopcounter: %d mod 32+16: %d\n",loopcounter , (loopcounter % 32)+16);
+      printf("loopcounter: %d mod 32+16: %d, gvalue: %d\n",loopcounter , (loopcounter % 32)+16,gvalue);
     buf[(loopcounter % 32)+16] = 0;
-    buf[((loopcounter+1) % 32)+16 ] = 0x055;
+    buf[((loopcounter+1) % 32)+16 ] = gvalue;
     loopcounter++;
     usleep(50000);
   }
@@ -123,10 +123,14 @@ int walk(void) {
 
 int write_led_buffer(void) {
       int numbytes = sizeof(buf[0]) * channels;
+      int byteswritten = 0;
 
-      if(write(file,&buf, numbytes) != numbytes)
+      byteswritten = write(file,&buf, numbytes);
+      if(byteswritten != numbytes)
       {
-        perror("Error writing spi:");
+        
+        printf("Error writing spi: tried to write %d bytes but only %d bytes were written\n",numbytes,byteswritten);
+        perror("Error writing spi");
         return 1; }
     return 0;
 }
@@ -169,6 +173,7 @@ int spi_init(void) {
 }
 
 int set_digit(int digit, int val, uint16_t greyscale) {
+  printf("greyscale: %d\n",greyscale);
   if ((val < 0) || (val > 9)) {
     printf("Error: val must be in the range 0-9\n");
     exit(EXIT_FAILURE);}
@@ -180,7 +185,6 @@ int set_digit(int digit, int val, uint16_t greyscale) {
     //buf[digit.segment[i]] = f[val][i] && greyscale;
     buf[segments[digit][i]] = f[val][i] && greyscale;
   }
-
 }
 
 int main(int argc, char *argv[])
@@ -194,10 +198,8 @@ int main(int argc, char *argv[])
   while ((c = getopt (argc, argv, "wc:g:d:v:")) != -1) {
     switch (c) {
     case 'w': // walk
-      printf("got w\n");
-      spi_init();
-      walk();
-      exit(0);
+      //printf("got w\n");
+      walk_value = 1;
       break;
     case 'c':
       cvalue = atoi(optarg);
@@ -216,16 +218,30 @@ int main(int argc, char *argv[])
       exit(EXIT_FAILURE);
     }
   }
+
+
+
+
+
   
+  printf("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
   spi_init();
 
-  if (dvalue > -1) {
+
+  if (walk_value == 1) {
+    walk();
+    exit(0);
+  }
+
+  
+  if (dvalue >= 0) {
     // setting a digit to a value
     if ((vvalue < 0) || (gvalue < 0)) {
       printf("Error: -g and -v must both be set to use the digit option");
       exit(EXIT_FAILURE);
     }
     set_digit(dvalue,vvalue,gvalue);
+    write_led_buffer();
   } else {
     /// assuming we are setting individual segments
     buf[cvalue] = gvalue;
