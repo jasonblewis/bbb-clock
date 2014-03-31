@@ -92,11 +92,20 @@ int cvalue = -1; // channel to set
 uint16_t gvalue = -1; // to this greyscale value
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
-int walk_value = 0; //by default don't run the walk
- 
-void print_usage(void) {
+int walk_option = 0; //by default don't run the walk
+int clock_option = 0; //
+int help_option = 0;
+
+void usage(void) {
   printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
+  printf("                 -h    show this help message\n");
+  printf("                 -t    show the time\n");
+  printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
     }
+
+void clock() {
+
+}
 
 int walk(void) {
       int loopcounter = 0;
@@ -196,14 +205,19 @@ int main(int argc, char *argv[])
 
   opterr = 0;
      
-  while ((c = getopt (argc, argv, "wc:g:d:v:")) != -1) {
+  while ((c = getopt (argc, argv, "hwc:g:d:v:t")) != -1) {
     switch (c) {
+    case 'h': // show usage message
+      help_option = 1;
+      break;
     case 'w': // walk
-      //printf("got w\n");
-      walk_value = 1;
+       walk_option = 1;
       break;
     case 'c':
       cvalue = atoi(optarg);
+      break;
+    case 't': // show the time
+      clock_option = 1;
       break;
     case 'g':
       gvalue = atoi(optarg);
@@ -215,7 +229,7 @@ int main(int argc, char *argv[])
       vvalue = atoi(optarg);
       break;
     default:
-      print_usage();
+      usage();
       exit(EXIT_FAILURE);
     }
   }
@@ -224,8 +238,19 @@ int main(int argc, char *argv[])
   printf("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
   spi_init();
 
-  if (walk_value == 1) {
+
+  if (help_option == 1) {
+    usage();
+    exit(0);
+  }
+
+  if (walk_option == 1) {
     walk();
+    exit(0);
+  }
+
+  if (clock_option == 1) {
+    clock();
     exit(0);
   }
 
