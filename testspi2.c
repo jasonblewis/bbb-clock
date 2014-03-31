@@ -1,3 +1,4 @@
+#define _BSD_SOURCE
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -10,6 +11,10 @@
 #include <linux/types.h>
 #include <linux/spi/spidev.h>
 #include <time.h>
+
+
+#define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
+#define DEBUG 1
 
 #define tlc5947_count 2
 #define tlc5947_channels 24
@@ -101,12 +106,13 @@ int help_option = 0;
 
 
 int set_digit(int digit, int val, uint16_t greyscale);
+int write_led_buffer(void);
 
 void usage(void) {
-  printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
-  printf("                 -h    show this help message\n");
-  printf("                 -t    show the time\n");
-  printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
+  debug_print("Usage: testspi2 [w|-c channel -g greyscale ]\n");
+  debug_print("                 -h    show this help message\n");
+  debug_print("                 -t    show the time\n");
+  debug_print("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
     }
 
 int nthdigit(int x, int n)
@@ -116,7 +122,7 @@ int nthdigit(int x, int n)
 }
 
 void clockfn() {
-  printf("in clock function\n");
+  debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
   int current_hour;
@@ -124,8 +130,8 @@ void clockfn() {
     t = time(NULL);
     tm = *localtime(&t);
     current_hour = tm.tm_hour % 12;
-    printf("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
-    printf("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
+    debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
+    debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
 
     // if the leading digit of the hour is 0, display it as blank
     if (nthdigit(current_hour,1) == 0) {
@@ -147,16 +153,16 @@ int walk(void) {
       while (loopcounter < 1000) {  
 
       int numbytes = sizeof(buf[0]) * channels;
-      //printf("sending %d bytes\n",sizeof(buf[0]) * numbytes);
-      //printf("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
+      //debug_print("sending %d bytes\n",sizeof(buf[0]) * numbytes);
+      //debug_print("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
       
       if(write(file,&buf, numbytes) != numbytes) {
         perror("Error writing spi:");
-        //        fprintf(stderr, "There was an error writing to the spi device\n");
+        //        fdebug_print(stderr, "There was an error writing to the spi device\n");
         return 1; }
     
     // walk the bit
-      printf("loopcounter: %d mod 32+16: %d, gvalue: %d\n",loopcounter , (loopcounter % 32)+16,gvalue);
+      debug_print("loopcounter: %d mod 32+16: %d, gvalue: %d\n",loopcounter , (loopcounter % 32)+16,gvalue);
     buf[(loopcounter % 32)+16] = 0;
     buf[((loopcounter+1) % 32)+16 ] = gvalue;
     loopcounter++;
@@ -173,7 +179,7 @@ int write_led_buffer(void) {
       if(byteswritten != numbytes)
       {
         
-        printf("Error writing spi: tried to write %d bytes but only %d bytes were written\n",numbytes,byteswritten);
+        debug_print("Error writing spi: tried to write %d bytes but only %d bytes were written\n",numbytes,byteswritten);
         perror("Error writing spi");
         return 1; }
     return 0;
@@ -195,7 +201,7 @@ int spi_init(void) {
   if (ioctl(file,SPI_IOC_RD_MAX_SPEED_HZ,&speed) < 0) {
     perror ("Error reading speed");
   } else {
-    printf("speed is %ul\n",speed);
+    debug_print("speed is %ul\n",speed);
   }
   if (ioctl(file,SPI_IOC_WR_BITS_PER_WORD,&bpw) < 0) {
     perror ("Error setting bpw");
@@ -203,7 +209,7 @@ int spi_init(void) {
   if (ioctl(file,SPI_IOC_RD_BITS_PER_WORD,&bpw) < 0) {
     perror ("Error reading bpw");
   } else {
-    printf("bpw is %d\n",bpw);
+    debug_print("bpw is %d\n",bpw);
   }
 
   /* if (ioctl(file,SPI_IOC_WR_MODE,&mode) < 0) { */
@@ -212,23 +218,23 @@ int spi_init(void) {
   if (ioctl(file,SPI_IOC_RD_MODE,&mode) < 0) {
     perror ("Error reading mode"); }
   else {
-    printf("mode is %d\n",mode);
+    debug_print("mode is %d\n",mode);
   }
 }
 
 int set_digit(int digit, int val, uint16_t greyscale) {
-  printf("greyscale: %d\n",greyscale);
+  debug_print("greyscale: %d\n",greyscale);
   if ((val < 0) || (val > BLANK)) {
-    printf("Error: val was %d but must be in the range 0-9.\n", val);
+    debug_print("Error: val was %d but must be in the range 0-9.\n", val);
     exit(EXIT_FAILURE);}
   if ((digit < 0) || (digit > DIGITS-1)) {
-    printf("Error: digit  must be in the range 0-%d\n", DIGITS - 1 );
+    debug_print("Error: digit  must be in the range 0-%d\n", DIGITS - 1 );
     exit(EXIT_FAILURE);}
   int i;
   for (i = 0; i < SEGMENTS ; i++) {
     //buf[digit.segment[i]] = f[val][i] & greyscale;
     buf[segments[digit][i]] = f[val][i] & greyscale;
-    printf("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
+    debug_print("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
   }
 }
 
@@ -270,7 +276,7 @@ int main(int argc, char *argv[])
   }
 
   
-  printf("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
+  debug_print("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
   spi_init();
 
 
@@ -292,7 +298,7 @@ int main(int argc, char *argv[])
   if (dvalue >= 0) {
     // setting a digit to a value
     if ((vvalue < 0) || (gvalue < 0)) {
-      printf("Error: -g and -v must both be set to use the digit option");
+      debug_print("Error: -g and -v must both be set to use the digit option");
       exit(EXIT_FAILURE);
     }
     set_digit(dvalue,vvalue,gvalue);
@@ -308,6 +314,6 @@ int main(int argc, char *argv[])
 
 /*
 # Local Variables:
-# compile-command: "gcc -g testspi2.c -o testspi2"
+# compile-command: "gcc -g -std=c99 testspi2.c -o testspi2"
 # End:
 */
