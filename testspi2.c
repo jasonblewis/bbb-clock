@@ -69,7 +69,7 @@ int dp3 = 16;
 /* int const f8[] = {1, 1, 1, 1, 1, 1, 1}; */
 /* int const f9[] = {1, 1, 1, 1, 0, 1, 1}; */
 
-uint16_t const f[10][SEGMENTS] = {
+uint16_t const f[11][SEGMENTS] = {
   {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000}, // 0
   {0x000, 0xFFF, 0xFFF, 0x000, 0x000, 0x000, 0x000}, // 1
   {0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF, 0x000, 0xFFF}, // 2
@@ -79,8 +79,10 @@ uint16_t const f[10][SEGMENTS] = {
   {0xFFF, 0x000, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF}, // 6
   {0xFFF, 0xFFF, 0xFFF, 0x000, 0x000, 0x000, 0x000}, // 7
   {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF, 0xFFF}, // 8
-  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF}  // 9
+  {0xFFF, 0xFFF, 0xFFF, 0xFFF, 0x000, 0xFFF, 0xFFF}, // 9
+  {0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000}  // all off (10)
 };
+#define BLANK 10
 
 uint16_t buf[channels];
 int file;
@@ -117,13 +119,21 @@ void clockfn() {
   printf("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
+  int current_hour;
   while(1) {
     t = time(NULL);
     tm = *localtime(&t);
+    current_hour = tm.tm_hour % 12;
     printf("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
     printf("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
-    set_digit(3,nthdigit(tm.tm_hour,1),1000);
-    set_digit(2,nthdigit(tm.tm_hour,0),1000);
+
+    // if the leading digit of the hour is 0, display it as blank
+    if (nthdigit(current_hour,1) == 0) {
+      set_digit (3,BLANK,1000);
+    } else {
+      set_digit (3,nthdigit(current_hour,1),1000);
+    }
+    set_digit(2,nthdigit(current_hour,0),1000);
     set_digit(1,nthdigit(tm.tm_min,1),1000);
     set_digit(0,nthdigit(tm.tm_min,0),1000);
     write_led_buffer();
@@ -208,7 +218,7 @@ int spi_init(void) {
 
 int set_digit(int digit, int val, uint16_t greyscale) {
   printf("greyscale: %d\n",greyscale);
-  if ((val < 0) || (val > 9)) {
+  if ((val < 0) || (val > BLANK)) {
     printf("Error: val was %d but must be in the range 0-9.\n", val);
     exit(EXIT_FAILURE);}
   if ((digit < 0) || (digit > DIGITS-1)) {
