@@ -133,7 +133,7 @@ void clockfn() {
     tm = *localtime(&t);
 
     // convert to 12 hour clock
-    current_hour = ((current_hour + 11) % 12 + 1);
+    current_hour = ((tm.tm_hour + 11) % 12 + 1);
     
     debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
     debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
