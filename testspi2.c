@@ -18,10 +18,14 @@
 
 #define tlc5947_count 2
 #define tlc5947_channels 24
+#define EXTRA_LEDS 4
 #define channels (tlc5947_count * tlc5947_channels)
 #define BPW 12 // bits per word
 #define DIGITS 4 // 4 7-segment displays attached
 #define SEGMENTS 7
+#define connected_leds ((SEGMENTS * DIGITS) + DIGITS + EXTRA_LEDS)
+#define start_channel (channels - connected_leds) - 1
+
 /* brown - p9_22 - clock
    green - p9_17 - /cs - chip select, latch
    grey -  p9_18 - data out of BBB */
@@ -167,12 +171,15 @@ int walk(void) {
         //        fdebug_print(stderr, "There was an error writing to the spi device\n");
         return 1; }
     
-    // walk the bit
-      debug_print("loopcounter: %d mod 32+16: %d, gvalue: %d\n",loopcounter , (loopcounter % 32)+16,gvalue);
-    buf[(loopcounter % 32)+16] = 0;
-    buf[((loopcounter+1) % 32)+16 ] = gvalue;
+      // walk the bit
+      debug_print("connected_leds: %d,", connected_leds );
+      debug_print("start_channel: %d,", start_channel );
+      debug_print("channels: %d\n", channels );
+      debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %d\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,gvalue);
+    buf[(loopcounter % connected_leds ) + start_channel] = 0;
+    buf[((loopcounter+1) % connected_leds )+ start_channel ] = gvalue;
     loopcounter++;
-    usleep(50000);
+    usleep(100000);
   }
       return 0;
 }
