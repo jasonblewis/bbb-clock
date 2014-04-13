@@ -3,5 +3,6 @@ Beaglebone Black 7 Segment Display Clock with TL5947 SPI PWM LED Drivers
 ** Testing
 *** Walk the digits displaying numbers 0-9
 #+BEGIN_SRC bash
-for d in {0..3} ; do for i in {0..9} ; do  ./testspi2 -d $d -v $i -g 1000; sleep 1; done; done
+for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1; done; done
 #+END_SRC
+    

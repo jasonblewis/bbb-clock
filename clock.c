@@ -332,6 +332,6 @@ int main(int argc, char *argv[])
 
 /*
 # Local Variables:
-# compile-command: "gcc -g -std=c99 testspi2.c -o testspi2"
+# compile-command: "gcc -g -std=c99 clock.c -o clock"
 # End:
 */
