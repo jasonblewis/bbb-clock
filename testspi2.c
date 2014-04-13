@@ -67,6 +67,7 @@ int const segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,
 /* int dp3 = 16; */
 
 int const decimalpoint[DIGITS] = {40,32,24,16};
+int const colon[2][2] = {{13,12},{15,14}};
 
          ///segment  A  B  C  D  E  F  G
 /* int const f0[] = {1, 1, 1, 1, 1, 1, 0}; */
@@ -152,6 +153,10 @@ void clockfn() {
     set_digit(1,nthdigit(tm.tm_min,1),1000);
     set_digit(0,nthdigit(tm.tm_min,0),1000);
     buf[decimalpoint[0]] = (tm.tm_sec % 2) * 1000;
+    buf[colon[0][0]] = (tm.tm_sec % 2) * 1000;
+    buf[colon[0][1]] = ((tm.tm_sec+1) % 2) * 1000;
+    buf[colon[1][0]] = (tm.tm_sec % 2) * 1000;
+    buf[colon[1][1]] = ((tm.tm_sec+1) % 2) * 1000;
     write_led_buffer();
     usleep(500000);
   }
