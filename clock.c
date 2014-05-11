@@ -58,16 +58,22 @@ typedef struct digit_t {uint8_t segment[SEGMENTS];} digit_t;
 /* digit_t const digit3 = { .segment = {23,22,21,20,19,18,17}}; */
 
 // alternative way to declare segments
-int const segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,34,33},
-                      {31,30,29,28,27,26,25}, {23,22,21,20,19,18,17}};
+//int const segments[DIGITS][SEGMENTS] = {{47,46,45,44,43,42,41}, {39,38,37,36,35,34,33},
+//                      {31,30,29,28,27,26,25}, {23,22,21,20,19,18,17}};
+
+
+int const segments[DIGITS][SEGMENTS] = {{13,12,10,9,8,14,15},
+                                        {17,16,6,5,4,18,19},
+                                        {21,20,2,1,0,22,23},
+                                        {45,44,26,25,24,46,47}};
 
 /* int dp0 = 40; */
 /* int dp1 = 32; */
 /* int dp2 = 24; */
 /* int dp3 = 16; */
 
-int const decimalpoint[DIGITS] = {40,32,24,16};
-int const colon[2][2] = {{13,12},{15,14}};
+int const decimalpoint[DIGITS] = {11,7,3,27};
+int const colon[2][2] = {{28,29},{30,31}};
 
          ///segment  A  B  C  D  E  F  G
 /* int const f0[] = {1, 1, 1, 1, 1, 1, 0}; */
