@@ -116,16 +116,16 @@ int vvalue = -1; // value to set digit to
 int walk_option = 0; //by default don't run the walk
 int clock_option = 0; //
 int help_option = 0;
-
+int quiet = 0;
 
 int set_digit(int digit, int val, uint16_t greyscale);
 int write_led_buffer(void);
 
 void usage(void) {
-  debug_print("Usage: testspi2 [w|-c channel -g greyscale ]\n");
-  debug_print("                 -h    show this help message\n");
-  debug_print("                 -t    show the time\n");
-  debug_print("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
+  printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
+  printf("                 -h    show this help message\n");
+  printf("                 -t    show the time\n");
+  printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
     }
 
 int nthdigit(int x, int n)
@@ -216,7 +216,8 @@ int spi_init(void) {
   
   file = open("/dev/spidev1.0",O_WRONLY); //dev
   if(file < 0) {
-    perror ("Error:");
+    perror ("Error opening spidev1.0");
+    exit(EXIT_FAILURE);
     return 1;
   }
   if (ioctl(file,SPI_IOC_WR_MAX_SPEED_HZ,&speed) < 0) {

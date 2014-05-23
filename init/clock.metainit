@@ -1,0 +1,7 @@
+Short-Description: start clock display
+Description: starts the program that displays the clock on the LED displays
+Exec: /usr/local/bin/clock -t
+Required-Start: $syslog $time
+Required-Stop: $syslog $time
+Prestart-Hook: echo "Starting clock";
+Poststop-Hook: echo "clock stopped";

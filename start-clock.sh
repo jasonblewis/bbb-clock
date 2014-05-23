@@ -13,4 +13,4 @@ done
 echo none >  /sys/class/leds/ath9k_htc-phy0/trigger
 
 # start clock in a screen instance
-exec /root/clock/clock -t
+exec /root/clock/clock -t 
