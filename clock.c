@@ -25,6 +25,7 @@
 #define SEGMENTS 7
 #define connected_leds ((SEGMENTS * DIGITS) + DIGITS + EXTRA_LEDS)
 #define start_channel (channels - connected_leds) - 1
+#define default_brightness 1000
 
 /* brown - p9_22 - clock
    green - p9_17 - /cs - chip select, latch
@@ -73,7 +74,7 @@ int const segments[DIGITS][SEGMENTS] = {{13,12,10,9,8,14,15},
 /* int dp3 = 16; */
 
 int const decimalpoint[DIGITS] = {11,7,3,27};
-int const colon[2][2] = {{28,29},{30,31}};
+int const colon[2][2] = {{28,29},{41,43}};
 
          ///segment  A  B  C  D  E  F  G
 /* int const f0[] = {1, 1, 1, 1, 1, 1, 0}; */
@@ -135,6 +136,7 @@ int nthdigit(int x, int n)
 }
 
 void clockfn() {
+  if (vvalue == -1) { vvalue = default_brightness; }
   debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
@@ -151,18 +153,18 @@ void clockfn() {
 
     // if the leading digit of the hour is 0, display it as blank
     if (nthdigit(current_hour,1) == 0) {
-      set_digit (3,BLANK,1000);
+      set_digit (3,BLANK,vvalue);
     } else {
-      set_digit (3,nthdigit(current_hour,1),1000);
+      set_digit (3,nthdigit(current_hour,1),vvalue);
     }
-    set_digit(2,nthdigit(current_hour,0),1000);
-    set_digit(1,nthdigit(tm.tm_min,1),1000);
-    set_digit(0,nthdigit(tm.tm_min,0),1000);
-    buf[decimalpoint[0]] = (tm.tm_sec % 2) * 1000;
-    buf[colon[0][0]] = (tm.tm_sec % 2) * 1000;
-    buf[colon[0][1]] = ((tm.tm_sec+1) % 2) * 1000;
-    buf[colon[1][0]] = (tm.tm_sec % 2) * 1000;
-    buf[colon[1][1]] = ((tm.tm_sec+1) % 2) * 1000;
+    set_digit(2,nthdigit(current_hour,0),vvalue);
+    set_digit(1,nthdigit(tm.tm_min,1),vvalue);
+    set_digit(0,nthdigit(tm.tm_min,0),vvalue);
+    buf[decimalpoint[0]] = (tm.tm_sec % 2) * vvalue;
+    buf[colon[0][0]] = (tm.tm_sec % 2) * vvalue;
+    buf[colon[0][1]] = ((tm.tm_sec+1) % 2) * vvalue;
+    buf[colon[1][0]] = (tm.tm_sec % 2) * vvalue;
+    buf[colon[1][1]] = ((tm.tm_sec+1) % 2) * vvalue;
     write_led_buffer();
     usleep(500000);
   }

@@ -5,4 +5,6 @@ Beaglebone Black 7 Segment Display Clock with TL5947 SPI PWM LED Drivers
 #+BEGIN_SRC bash
 for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1; done; done
 #+END_SRC
+
+*** Walk the segments, displaying 1 segment at a time
     
