@@ -1,0 +1,8 @@
+Short-Description: start tsl2561-daemon
+Description: starts the program that reads the tsl2561 light level chip and allows clients to connect and read current ambience
+Exec: /usr/local/bin/tsl2561-daemon
+Required-Start: $syslog $time
+Required-Stop: $syslog $time
+Prestart-Hook: echo "Starting tsl2561-daemon";
+Poststop-Hook: echo "tsl2561-daemon stopped";
+q

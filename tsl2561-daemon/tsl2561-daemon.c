@@ -85,6 +85,6 @@ int main(int argc, char *argv[])
 
 /*
 # Local Variables:
-# compile-command: "gcc -g -std=c99 server.c -o server"
+# compile-command: "gcc -g -std=c99 tsl2561-daemon.c -o tsl2561-daemon"
 # End:
 */

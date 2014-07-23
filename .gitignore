@@ -2,3 +2,5 @@ spi
 testspi2
 x.working
 clock
+tsl2561-daemon/tsl2561-daemon
+tsl2561-daemon/tsl2561-daemon.o
