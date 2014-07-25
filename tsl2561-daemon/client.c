@@ -15,7 +15,10 @@
 #include <arpa/inet.h> 
 #include <sys/select.h>
 #include <fcntl.h>
+#include <signal.h>
 
+
+int sockfd = 0;
 
 
 /*
@@ -67,18 +70,11 @@ int recv_to(int fd, char *buffer, int len, int flags, int to) {
 }
 
 
-
-
-int main(int argc, char *argv[])
-{
-    int sockfd = 0, n = 0;
+int get_brightness(char *ipaddress) {
+    int n = 0;
     char recvBuff[1024];
     struct sockaddr_in serv_addr; 
 
-    if(argc != 2) {
-        printf("\n Usage: %s <ip of server> \n",argv[0]);
-        return 1;
-    }
     
     memset(recvBuff, '0',sizeof(recvBuff));
     if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -91,7 +87,7 @@ int main(int argc, char *argv[])
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(5000); 
 
-    if(inet_pton(AF_INET, argv[1], &serv_addr.sin_addr)<=0)
+    if(inet_pton(AF_INET, ipaddress, &serv_addr.sin_addr)<=0)
     {
         printf("\n inet_pton error occured\n");
         return 1;
@@ -127,6 +123,33 @@ int main(int argc, char *argv[])
 
     return 0;
     }
+}
+
+void sigint_handler(int sig)
+{
+  /*do something*/
+  printf("killing process %d\n",getpid());
+  printf("Closing socket\n");
+  close(sockfd);
+  exit(0);
+}
+
+
+int main(int argc, char *argv[])
+{
+
+    signal(SIGINT, sigint_handler);
+
+if(argc != 2) {
+    printf("\n Usage: %s <ip of server> \n",argv[0]);
+    return 1;
+  }
+
+  int x;
+  for ( x = 0; x < 1000; x++ ) {
+    get_brightness(argv[1]);
+    sleep(1);
+  }
 }
 
 /*
