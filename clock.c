@@ -13,6 +13,16 @@
 #include <time.h>
 
 
+// includes for reading tsl2561-daemon
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <string.h>
+#include <errno.h>
+#include <arpa/inet.h> 
+#include <sys/select.h>
+
+
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
 #define DEBUG 1
 
