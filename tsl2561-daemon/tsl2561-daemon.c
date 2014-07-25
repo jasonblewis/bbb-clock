@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
       // sense the luminosity from the sensor (lux is the luminosity taken in "lux" measure units)
       // the last parameter can be 1 to enable library auto gain, or 0 to disable it
       rc = TSL2561_SENSELIGHT(&light1, &broadband, &ir, &lux, 1);
-      sprintf(sendBuff, "Test. RC: %i(%s), broadband: %i, ir: %i, lux: %i\n", rc, strerror(light1.lasterr), broadband, ir, lux);
+      sprintf(sendBuff, "RC: %i(%s), broadband: %i, ir: %i, lux: %i\n", rc, strerror(light1.lasterr), broadband, ir, lux);
       
       
       //snprintf(sendBuff, sizeof(sendBuff), "%.24s\r\n", ctime(&ticks));

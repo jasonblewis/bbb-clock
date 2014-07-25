@@ -19,7 +19,7 @@
 
 
 int sockfd = 0;
-
+char recvBuff[1024];
 
 /*
    Params:
@@ -69,11 +69,9 @@ int recv_to(int fd, char *buffer, int len, int flags, int to) {
    return -2;
 }
 
+int open_socket(char *ipaddress) {
 
-int get_brightness(char *ipaddress) {
-    int n = 0;
-    char recvBuff[1024];
-    struct sockaddr_in serv_addr; 
+  struct sockaddr_in serv_addr; 
 
     
     memset(recvBuff, '0',sizeof(recvBuff));
@@ -99,12 +97,21 @@ int get_brightness(char *ipaddress) {
        return 1;
     } 
 
+}
+
+int get_brightness(char *ipaddress) {
+
+  int n = 0;
+  int broadband, ir, lux;
+
     n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
     if (n > 0 ) {
       recvBuff[n] = 0;
-      if (fputs(recvBuff, stdout) == EOF) {
-          printf("\n Error : Fputs error\n");
-        }
+      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+      printf("Broadband: %d, ir: %d, lux: %d\n",broadband, ir, lux);
+      //      if (fputs(recvBuff, stdout) == EOF) {
+      //    printf("\n Error : Fputs error\n");
+      //  }
     } else {
       switch (n) {
       case 0:
@@ -138,16 +145,21 @@ void sigint_handler(int sig)
 int main(int argc, char *argv[])
 {
 
-    signal(SIGINT, sigint_handler);
-
-if(argc != 2) {
+  signal(SIGINT, sigint_handler);
+  
+  if(argc != 2) {
     printf("\n Usage: %s <ip of server> \n",argv[0]);
     return 1;
   }
 
+  
   int x;
   for ( x = 0; x < 1000; x++ ) {
+    open_socket(argv[1]);
+  
     get_brightness(argv[1]);
+
+    close(sockfd);
     sleep(1);
   }
 }

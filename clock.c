@@ -22,6 +22,7 @@
 #include <arpa/inet.h> 
 #include <sys/select.h>
 
+#include <signal.h>
 
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
 #define DEBUG 1
@@ -36,6 +37,10 @@
 #define connected_leds ((SEGMENTS * DIGITS) + DIGITS + EXTRA_LEDS)
 #define start_channel (channels - connected_leds) - 1
 #define default_brightness 1000
+
+int sockfd = 0;
+char recvBuff[1024];
+int current_ambient;
 
 /* brown - p9_22 - clock
    green - p9_17 - /cs - chip select, latch
@@ -275,8 +280,121 @@ int set_digit(int digit, int val, uint16_t greyscale) {
   }
 }
 
+
+void sigint_handler(int sig)
+{
+  /*do something*/
+  printf("killing process %d\n",getpid());
+  printf("Closing socket\n");
+  close(sockfd);
+  exit(0);
+}
+
+
+int recv_to(int fd, char *buffer, int len, int flags, int to) {
+
+  fd_set readset,tempset;
+   int result, iof = -1;
+   struct timeval tv;
+
+   // Initialize the set
+   FD_ZERO(&readset);
+   FD_SET(fd, &readset);
+   
+   // Initialize time out struct
+   tv.tv_sec = 0;
+   tv.tv_usec = to * 1000;
+   // select()
+   result = select(fd+1, &tempset, NULL, NULL, &tv);
+
+   // Check status
+   if (result < 0)
+      return -1;
+   else if (result > 0 && FD_ISSET(fd, &tempset)) {
+      // Set non-blocking mode
+      if ((iof = fcntl(fd, F_GETFL, 0)) != -1)
+         fcntl(fd, F_SETFL, iof | O_NONBLOCK);
+      // receive
+      result = recv(fd, buffer, len, flags);
+      // set as before
+      if (iof != -1)
+         fcntl(fd, F_SETFL, iof);
+      return result;
+   }
+   return -2;
+}
+
+int open_socket(char *ipaddress) {
+
+  struct sockaddr_in serv_addr; 
+
+    
+    memset(recvBuff, '0',sizeof(recvBuff));
+    if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("\n Error : Could not create socket \n");
+        return 1;
+    } 
+
+    memset(&serv_addr, '0', sizeof(serv_addr)); 
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(5000); 
+
+    if(inet_pton(AF_INET, ipaddress, &serv_addr.sin_addr)<=0)
+    {
+        printf("\n inet_pton error occured\n");
+        return 1;
+    } 
+
+    if( connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    {
+       printf("\n Error : Connect Failed \n");
+       return 1;
+    } 
+
+}
+
+int get_brightness(char *ipaddress) {
+
+  int n = 0;
+  int broadband, ir, lux;
+
+  
+    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
+    if (n > 0 ) {
+      recvBuff[n] = 0;
+      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+      current_ambient = broadband;
+      if (fputs(recvBuff, stdout) == EOF) {
+          printf("\n Error : Fputs error\n");
+        }
+    } else {
+      switch (n) {
+      case 0:
+          printf("\n read 0 bytes \n");
+          break;        
+      case -1:
+          printf("\n returned -1, read again later \n");
+          break;        
+      case -2:
+          printf("\n timed out \n");
+          break;        
+      default:
+        printf("got something we shouldn't have  - aborting\n");
+        exit(EXIT_FAILURE);
+      }
+
+    return 0;
+    }
+}
+
+
+
 int main(int argc, char *argv[])
 { 
+  // set up ctrl-c signal handler
+    signal(SIGINT, sigint_handler);
+
   uint32_t speed = 1000000;
   uint8_t bpw = BPW;
   uint8_t mode = 0;
