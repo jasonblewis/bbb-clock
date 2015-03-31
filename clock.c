@@ -25,7 +25,7 @@
 #include <signal.h>
 
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
-#define DEBUG 1
+#define DEBUG 0
 
 #define tlc5947_count 2
 #define tlc5947_channels 24
@@ -67,7 +67,7 @@ const unsigned int PWMTable[] = {
 
 typedef struct digit_t {uint8_t segment[SEGMENTS];} digit_t;
 
-                   ///segment  A  B  C  D  E  F  G
+///segment  A  B  C  D  E  F  G
 /* digit_t const digit0 = { .segment = {47,46,45,44,43,42,41}}; */
 /* digit_t const digit1 = { .segment = {39,38,37,36,35,34,33}}; */
 /* digit_t const digit2 = { .segment = {31,30,29,28,27,26,25}}; */
@@ -89,9 +89,9 @@ int const segments[DIGITS][SEGMENTS] = {{13,12,10,9,8,14,15},
 /* int dp3 = 16; */
 
 int const decimalpoint[DIGITS] = {11,7,3,27};
-int const colon[2][2] = {{28,29},{41,43}};
+int const colon[2][2] = {{39,40},{43,41}};
 
-         ///segment  A  B  C  D  E  F  G
+///segment  A  B  C  D  E  F  G
 /* int const f0[] = {1, 1, 1, 1, 1, 1, 0}; */
 /* int const f1[] = {0, 1, 1, 0, 0, 0, 0}; */
 /* int const f2[] = {1, 1, 0, 1, 1, 0, 1}; */
@@ -138,92 +138,57 @@ int set_digit(int digit, int val, uint16_t greyscale);
 int write_led_buffer(void);
 
 void usage(void) {
-  printf("Usage: testspi2 [w|-c channel -g greyscale ]\n");
+  printf("Usage: clock [w|-c channel -g greyscale ]\n");
   printf("                 -h    show this help message\n");
   printf("                 -t    show the time\n");
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
-    }
+}
 
 int nthdigit(int x, int n)
 {
-    static int powersof10[] = {1, 10, 100, 1000};
-    return ((x / powersof10[n]) % 10);
+  static int powersof10[] = {1, 10, 100, 1000};
+  return ((x / powersof10[n]) % 10);
 }
 
-void clockfn() {
-  if (vvalue == -1) { vvalue = default_brightness; }
-  debug_print("in clock function\n");
-  time_t t = time(NULL);
-  struct tm tm;
-  int current_hour;
-  while(1) {
-    t = time(NULL);
-    tm = *localtime(&t);
-
-    // convert to 12 hour clock
-    current_hour = ((tm.tm_hour + 11) % 12 + 1);
-    
-    debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
-    debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
-
-    // if the leading digit of the hour is 0, display it as blank
-    if (nthdigit(current_hour,1) == 0) {
-      set_digit (3,BLANK,vvalue);
-    } else {
-      set_digit (3,nthdigit(current_hour,1),vvalue);
-    }
-    set_digit(2,nthdigit(current_hour,0),vvalue);
-    set_digit(1,nthdigit(tm.tm_min,1),vvalue);
-    set_digit(0,nthdigit(tm.tm_min,0),vvalue);
-    buf[decimalpoint[0]] = (tm.tm_sec % 2) * vvalue;
-    buf[colon[0][0]] = (tm.tm_sec % 2) * vvalue;
-    buf[colon[0][1]] = ((tm.tm_sec+1) % 2) * vvalue;
-    buf[colon[1][0]] = (tm.tm_sec % 2) * vvalue;
-    buf[colon[1][1]] = ((tm.tm_sec+1) % 2) * vvalue;
-    write_led_buffer();
-    usleep(500000);
-  }
-
-}
 
 int walk(void) {
-      int loopcounter = 0;
-      while (loopcounter < 1000) {  
+  int loopcounter = 0;
+  while (loopcounter < 1000) {  
 
-      int numbytes = sizeof(buf[0]) * channels;
-      //debug_print("sending %d bytes\n",sizeof(buf[0]) * numbytes);
-      //debug_print("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
+    int numbytes = sizeof(buf[0]) * channels;
+    //debug_print("sending %d bytes\n",sizeof(buf[0]) * numbytes);
+    //debug_print("sending %d bytes, %05x, %05x, %05x, %05x, %05x, %05x\n",sizeof(buf[0]) * numbytes, buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
       
-      if(write(file,&buf, numbytes) != numbytes) {
-        perror("Error writing spi:");
-        //        fdebug_print(stderr, "There was an error writing to the spi device\n");
-        return 1; }
+    if(write(file,&buf, numbytes) != numbytes) {
+      perror("Error writing spi:");
+      //        fdebug_print(stderr, "There was an error writing to the spi device\n");
+      return 1; }
     
-      // walk the bit
-      debug_print("connected_leds: %d,", connected_leds );
-      debug_print("start_channel: %d,", start_channel );
-      debug_print("channels: %d\n", channels );
-      debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %d\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,gvalue);
+    // walk the bit
+    debug_print("connected_leds: %d,", connected_leds );
+    debug_print("start_channel: %d,", start_channel );
+    debug_print("channels: %d\n", channels );
+    debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %d\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,gvalue);
     buf[(loopcounter % connected_leds ) + start_channel] = 0;
     buf[((loopcounter+1) % connected_leds )+ start_channel ] = gvalue;
     loopcounter++;
     usleep(100000);
-  }
-      return 0;
+      }
+  return 0;
 }
 
 int write_led_buffer(void) {
-      int numbytes = sizeof(buf[0]) * channels;
-      int byteswritten = 0;
+  int numbytes = sizeof(buf[0]) * channels;
+  int byteswritten = 0;
 
-      byteswritten = write(file,&buf, numbytes);
-      if(byteswritten != numbytes)
-      {
+  byteswritten = write(file,&buf, numbytes);
+  if(byteswritten != numbytes)
+    {
         
-        debug_print("Error writing spi: tried to write %d bytes but only %d bytes were written\n",numbytes,byteswritten);
-        perror("Error writing spi");
-        return 1; }
-    return 0;
+      debug_print("Error writing spi: tried to write %d bytes but only %d bytes were written\n",numbytes,byteswritten);
+      perror("Error writing spi");
+      return 1; }
+  return 0;
 }
 
 int spi_init(void) {
@@ -294,34 +259,43 @@ void sigint_handler(int sig)
 int recv_to(int fd, char *buffer, int len, int flags, int to) {
 
   fd_set readset,tempset;
-   int result, iof = -1;
-   struct timeval tv;
+  int result,recv_result, iof = -1;
+  struct timeval tv;
 
-   // Initialize the set
-   FD_ZERO(&readset);
-   FD_SET(fd, &readset);
+  // Initialize the set
+  FD_ZERO(&readset);
+  FD_SET(fd, &readset);
    
-   // Initialize time out struct
-   tv.tv_sec = 0;
-   tv.tv_usec = to * 1000;
-   // select()
-   result = select(fd+1, &tempset, NULL, NULL, &tv);
-
-   // Check status
-   if (result < 0)
-      return -1;
-   else if (result > 0 && FD_ISSET(fd, &tempset)) {
+  // Initialize time out struct
+  tv.tv_sec = 0;
+  tv.tv_usec = to * 1000;
+  // select()
+  result = select(fd+1, &readset, NULL, NULL, &tv);
+  printf("result: %d\n",result);
+  perror("select error:");
+     
+  // Check status
+  if (result < 0) {
+    return -1;
+  } else
+    if (result > 0 && FD_ISSET(fd, &readset)) {
       // Set non-blocking mode
-      if ((iof = fcntl(fd, F_GETFL, 0)) != -1)
-         fcntl(fd, F_SETFL, iof | O_NONBLOCK);
+      if ((iof = fcntl(fd, F_GETFL, 0)) != -1) {
+        fcntl(fd, F_SETFL, iof | O_NONBLOCK);
+      } else {
+        printf("failed to set non-blocking mode\n");
+      }
       // receive
-      result = recv(fd, buffer, len, flags);
+      recv_result = recv(fd, buffer, len, flags);
+      printf("number of bytes received: %d\n",recv_result);
+      if (recv_result == 0) printf("recv result 0, TCP connection was closed\n");
       // set as before
       if (iof != -1)
-         fcntl(fd, F_SETFL, iof);
-      return result;
-   }
-   return -2;
+        fcntl(fd, F_SETFL, iof);
+      return recv_result;
+    }
+  printf("result should be 0: %d\n",result);
+  return -2;
 }
 
 int open_socket(char *ipaddress) {
@@ -329,29 +303,29 @@ int open_socket(char *ipaddress) {
   struct sockaddr_in serv_addr; 
 
     
-    memset(recvBuff, '0',sizeof(recvBuff));
-    if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        printf("\n Error : Could not create socket \n");
-        return 1;
-    } 
+  memset(recvBuff, '0',sizeof(recvBuff));
+  if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    printf("\n Error : Could not create socket \n");
+    return 1;
+  } 
 
-    memset(&serv_addr, '0', sizeof(serv_addr)); 
+  memset(&serv_addr, '0', sizeof(serv_addr)); 
 
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(5000); 
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port = htons(5000); 
 
-    if(inet_pton(AF_INET, ipaddress, &serv_addr.sin_addr)<=0)
+  if(inet_pton(AF_INET, ipaddress, &serv_addr.sin_addr)<=0)
     {
-        printf("\n inet_pton error occured\n");
-        return 1;
+      printf("\n inet_pton error occured\n");
+      return 1;
     } 
 
-    if( connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+  if( connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
-       printf("\n Error : Connect Failed \n");
-       return 1;
+      printf("\n Error : Connect Failed \n");
+      return 1;
     } 
-
+  return 0;
 }
 
 int get_brightness(char *ipaddress) {
@@ -360,115 +334,169 @@ int get_brightness(char *ipaddress) {
   int broadband, ir, lux;
 
   
-    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
-    if (n > 0 ) {
-      recvBuff[n] = 0;
-      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
-      current_ambient = broadband;
-      if (fputs(recvBuff, stdout) == EOF) {
-          printf("\n Error : Fputs error\n");
-        }
-    } else {
-      switch (n) {
-      case 0:
-          printf("\n read 0 bytes \n");
-          break;        
-      case -1:
-          printf("\n returned -1, read again later \n");
-          break;        
-      case -2:
-          printf("\n timed out \n");
-          break;        
-      default:
-        printf("got something we shouldn't have  - aborting\n");
-        exit(EXIT_FAILURE);
-      }
+  n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
+  if (n > 0 ) {
+    recvBuff[n] = 0;
+    sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+    current_ambient = broadband;
+    if (fputs(recvBuff, stdout) == EOF) {
+      printf("\n Error : Fputs error\n");
+    }
+  } else {
+    switch (n) {
+    case 0:
+      printf("\n read 0 bytes \n");
+      break;        
+    case -1:
+      printf("\n returned -1, read again later \n");
+      break;        
+    case -2:
+      printf("\n timed out \n");
+      break;        
+    default:
+      printf("got something we shouldn't have  - aborting\n");
+      exit(EXIT_FAILURE);
+    }
 
     return 0;
-    }
+  }
 }
 
+void clockfn() {
+  int socket_open = 0;
+  
+  if (gvalue == -1) { gvalue = default_brightness; }
+  debug_print("in clock function\n");
+  time_t t = time(NULL);
+  struct tm tm;
+  int current_hour;
+  char *tsl2561_address = "127.0.0.1";
+  while(1) {
+    t = time(NULL);
+    tm = *localtime(&t);
+    
+    /* if (socket_open != 0) { // open the socket if its not already open */
+    /*   if (open_socket (tsl2561_address) != 0) { */
+    /*     printf("failed to open socket\n"); */
+    /*   } else { */
+    /*     socket_open = 1; */
+    /*   } */
+    /* } */
+  
+    /* if (socket_open != 0) { // now if its open, get the brightness */
 
+    /*   get_brightness(tsl2561_address); */
 
-int main(int argc, char *argv[])
-{ 
-  // set up ctrl-c signal handler
-    signal(SIGINT, sigint_handler);
+    /*   close(sockfd); */
 
-  uint32_t speed = 1000000;
-  uint8_t bpw = BPW;
-  uint8_t mode = 0;
+    
+      // convert to 12 hour clock
+      current_hour = ((tm.tm_hour + 11) % 12 + 1);
+    
+      debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
+      debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
 
-  opterr = 0;
-     
-  while ((c = getopt (argc, argv, "hwc:g:d:v:t")) != -1) {
-    switch (c) {
-    case 'h': // show usage message
-      help_option = 1;
-      break;
-    case 'w': // walk
-       walk_option = 1;
-      break;
-    case 'c':
-      cvalue = atoi(optarg);
-      break;
-    case 't': // show the time
-      clock_option = 1;
-      break;
-    case 'g':
-      gvalue = atoi(optarg);
-      break;
-    case 'd':
-      dvalue = atoi(optarg);
-      break;
-    case 'v':
-      vvalue = atoi(optarg);
-      break;
-    default:
-      usage();
-      exit(EXIT_FAILURE);
+      // if the leading digit of the hour is 0, display it as blank
+      if (nthdigit(current_hour,1) == 0) {
+        set_digit (3,BLANK,gvalue);
+      } else {
+        set_digit (3,nthdigit(current_hour,1),gvalue);
+      }
+      set_digit(2,nthdigit(current_hour,0),gvalue);
+      set_digit(1,nthdigit(tm.tm_min,1),gvalue);
+      set_digit(0,nthdigit(tm.tm_min,0),gvalue);
+      //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
+      buf[colon[0][0]] = 1 * gvalue;  // not working
+      buf[colon[0][1]] = 1 * gvalue; // not working
+      buf[colon[1][0]] = 1 * gvalue ; // middle colon
+                                                   // bottom LED
+      buf[colon[1][1]] = 1 * gvalue;
+      write_led_buffer();
+      usleep(500000); 
     }
-  }
 
   
-  debug_print("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
-  spi_init();
-
-
-  if (help_option == 1) {
-    usage();
-    exit(0);
-  }
-
-  if (walk_option == 1) {
-    walk();
-    exit(0);
-  }
-
-  if (clock_option == 1) {
-    clockfn();
-    exit(0);
-  }
-
-  if (dvalue >= 0) {
-    // setting a digit to a value
-    if ((vvalue < 0) || (gvalue < 0)) {
-      debug_print("Error: -g and -v must both be set to use the digit option");
-      exit(EXIT_FAILURE);
-    }
-    set_digit(dvalue,vvalue,gvalue);
-    write_led_buffer();
-  } else {
-    /// assuming we are setting individual segments
-    buf[cvalue] = gvalue;
-    write_led_buffer();
-  }
-  close(file);
-
 }
 
-/*
-# Local Variables:
-# compile-command: "gcc -g -std=c99 clock.c -o clock"
-# End:
-*/
+
+  int main(int argc, char *argv[])
+  { 
+    // set up ctrl-c signal handler
+    signal(SIGINT, sigint_handler);
+
+    uint32_t speed = 1000000;
+    uint8_t bpw = BPW;
+    uint8_t mode = 0;
+
+    opterr = 0;
+     
+    while ((c = getopt (argc, argv, "hwc:g:d:v:t")) != -1) {
+      switch (c) {
+      case 'h': // show usage message
+        help_option = 1;
+        break;
+      case 'w': // walk
+        walk_option = 1;
+        break;
+      case 'c':
+        cvalue = atoi(optarg);
+        break;
+      case 't': // show the time
+        clock_option = 1;
+        break;
+      case 'g': // grey scale
+        gvalue = atoi(optarg);
+        break;
+      case 'd':
+        dvalue = atoi(optarg);
+        break;
+      case 'v': // value to set digit to
+        vvalue = atoi(optarg);
+        break;
+      default:
+        usage();
+        exit(EXIT_FAILURE);
+      }
+    }
+
+  
+    debug_print("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
+    spi_init();
+
+
+    if (help_option == 1) {
+      usage();
+      exit(0);
+    }
+
+    if (walk_option == 1) {
+      walk();
+      exit(0);
+    }
+
+    if (clock_option == 1) {
+      clockfn();
+      exit(0);
+    }
+
+    if (dvalue >= 0) {
+      // setting a digit to a value
+      if ((vvalue < 0) || (gvalue < 0)) {
+        debug_print("Error: -g and -v must both be set to use the digit option");
+        exit(EXIT_FAILURE);
+      }
+      set_digit(dvalue,vvalue,gvalue);
+      write_led_buffer();
+    } else {
+      /// assuming we are setting individual segments
+      buf[cvalue] = gvalue;
+      write_led_buffer();
+    }
+    close(file);
+  }
+
+  /*
+    # Local Variables:
+    # compile-command: "gcc -g -std=c99 clock.c -o clock"
+    # End:
+  */
