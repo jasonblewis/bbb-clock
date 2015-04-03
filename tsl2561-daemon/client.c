@@ -99,6 +99,7 @@ int open_socket(char *ipaddress) {
 
 }
 
+
 int get_brightness(char *ipaddress) {
 
   int n = 0;

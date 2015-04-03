@@ -406,11 +406,10 @@ void clockfn() {
       set_digit(1,nthdigit(tm.tm_min,1),gvalue);
       set_digit(0,nthdigit(tm.tm_min,0),gvalue);
       //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
-      buf[colon[0][0]] = 1 * gvalue;  // not working
-      buf[colon[0][1]] = 1 * gvalue; // not working
-      buf[colon[1][0]] = 1 * gvalue ; // middle colon
-                                                   // bottom LED
-      buf[colon[1][1]] = 1 * gvalue;
+      // buf[colon[0][0]] = 1 * gvalue; // left top
+      // buf[colon[0][1]] = 1 * gvalue; // left bottom
+      buf[colon[1][0]] = 1 * gvalue; // 
+      buf[colon[1][1]] = 1 * gvalue; //
       write_led_buffer();
       usleep(500000); 
     }
