@@ -1,0 +1,7 @@
+Short-Description: turn clock display on
+Description: Turn the clock display on by sendgin GPIO_20 high, which in turn pulls /OE of the TLC5947 low
+Exec:  echo 1 > /sys/class/gpio/gpio20/value
+
+
+Prestart-Hook: echo 20 > /sys/class/gpio/export ; echo out > /sys/class/gpio/gpio20/direction 
+Poststop-Hook: echo 0 > /sys/class/gpio/gpio20/value
