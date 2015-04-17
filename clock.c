@@ -25,7 +25,7 @@
 #include <signal.h>
 
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
-#define DEBUG 0
+#define DEBUG 1
 
 #define tlc5947_count 2
 #define tlc5947_channels 24
@@ -38,9 +38,10 @@
 #define start_channel (channels - connected_leds) - 1
 #define default_brightness 1000
 
-int sockfd = 0;
-char recvBuff[1024];
-int current_ambient;
+static int sockfd = 0;
+static char recvBuff[1024];
+static int current_ambient;
+static char *tsl2561_address = "127.0.0.1";
 
 /* brown - p9_22 - clock
    green - p9_17 - /cs - chip select, latch
@@ -56,14 +57,15 @@ int current_ambient;
 */
 
 const unsigned int PWMTable[] = {
-  0,    1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 13,
-  16,   19, 23, 26, 29, 32,  35,  39,  43,  47,  51,  55, 60, 66,
-  71,   77, 84, 91, 98, 106, 114, 123, 133, 143, 154, 166,
-  179,  192, 207, 222, 239, 257, 276, 296, 317, 341, 366,
-  392,  421, 451, 483, 518, 555, 595, 638, 684, 732, 784,
-  840,  900, 964, 1032, 1105, 1184, 1267, 1357, 1453, 1555,
+     0,    1,    2,    3,    4,    5,    6,    7,    8,    9,  10,  13,
+    16,   19,   23,   26,   29,   32,   35,   39,   43,   47,  51,  55, 60, 66,
+    71,   77,   84,   91,   98,  106,  114,  123,  133,  143, 154, 166,
+   179,  192,  207,  222,  239,  257,  276,  296,  317,  341, 366,
+   392,  421,  451,  483,  518,  555,  595,  638,  684,  732, 784,
+   840,  900,  964, 1032, 1105, 1184, 1267, 1357, 1453, 1555,
   1665, 1782, 1907, 2042, 2185, 2339, 2503, 2679, 2867, 3069,
   3284, 3514, 3761, 4024, 4095};
+/* 8x5 + 7x5 + 10 = 40 + 35 + 10 = 85 elements */
 
 typedef struct digit_t {uint8_t segment[SEGMENTS];} digit_t;
 
@@ -132,14 +134,16 @@ int vvalue = -1; // value to set digit to
 int walk_option = 0; //by default don't run the walk
 int clock_option = 0; //
 int help_option = 0;
+int brightness_option = 0;
 int quiet = 0;
 
 int set_digit(int digit, int val, uint16_t greyscale);
 int write_led_buffer(void);
 
 void usage(void) {
-  printf("Usage: clock [w|-c channel -g greyscale ]\n");
+  printf("Usage: clock [-w|-c channel -g greyscale ]\n");
   printf("                 -h    show this help message\n");
+  printf("                 -b    show the current brightness detected by sensor\n");
   printf("                 -t    show the time\n");
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
 }
@@ -329,48 +333,60 @@ int open_socket(char *ipaddress) {
 }
 
 int get_brightness(char *ipaddress) {
+  static int socket_open = 0;
 
+  debug_print("in get_brightness\n");
   int n = 0;
   int broadband, ir, lux;
-
-  
-  n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
-  if (n > 0 ) {
-    recvBuff[n] = 0;
-    sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
-    current_ambient = broadband;
-    if (fputs(recvBuff, stdout) == EOF) {
-      printf("\n Error : Fputs error\n");
+  if (socket_open == 0) { // open the socket if its not already open
+    debug_print("socket not open, opening it\n");
+    if (open_socket (tsl2561_address) != 0) {
+      printf("failed to open socket\n");
+    } else {
+      debug_print("socket successfully opened\n");
+      socket_open = 1;
     }
-  } else {
-    switch (n) {
-    case 0:
-      printf("\n read 0 bytes \n");
-      break;        
-    case -1:
-      printf("\n returned -1, read again later \n");
-      break;        
-    case -2:
-      printf("\n timed out \n");
-      break;        
-    default:
-      printf("got something we shouldn't have  - aborting\n");
-      exit(EXIT_FAILURE);
-    }
-
-    return 0;
   }
+  if ( socket_open !=0 ) { // now if its open, get the brightness
+    debug_print("about to call recv_to\n");
+    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
+    if (n > 0 ) {
+      recvBuff[n] = 0;
+      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+      current_ambient = broadband;
+      if (fputs(recvBuff, stdout) == EOF) {
+        printf("\n Error : Fputs error\n");
+      }
+    } else {
+      switch (n) {
+      case 0:
+        printf("\n read 0 bytes \n");
+        break;        
+      case -1:
+        printf("\n returned -1, read again later \n");
+        break;        
+      case -2:
+        printf("\n timed out \n");
+        break;        
+      default:
+        printf("got something we shouldn't have  - aborting\n");
+        exit(EXIT_FAILURE);
+      }
+
+      return 0;
+    }
+  }
+  socket_open = 0;
+  close(sockfd);
 }
 
 void clockfn() {
-  int socket_open = 0;
   
   if (gvalue == -1) { gvalue = default_brightness; }
   debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
   int current_hour;
-  char *tsl2561_address = "127.0.0.1";
   while(1) {
     t = time(NULL);
     tm = *localtime(&t);
@@ -429,30 +445,43 @@ void clockfn() {
 
     opterr = 0;
      
-    while ((c = getopt (argc, argv, "hwc:g:d:v:t")) != -1) {
+    while ((c = getopt (argc, argv, "hwbc:g:d:v:t")) != -1) {
       switch (c) {
       case 'h': // show usage message
+        debug_print("command line args got: %c\n",c);
         help_option = 1;
         break;
+      case 'b': // read brightness from tsl2561 and print it out
+        debug_print("command line args got: %c\n",c);
+        brightness_option = 1;
+        break;
       case 'w': // walk
+        debug_print("command line args got: %c\n",c);
         walk_option = 1;
         break;
       case 'c':
+        debug_print("command line args got: %c\n",c);
         cvalue = atoi(optarg);
         break;
       case 't': // show the time
+        debug_print("command line args got: %c\n",c);
         clock_option = 1;
         break;
       case 'g': // grey scale
+        debug_print("command line args got: %c\n",c);
         gvalue = atoi(optarg);
+        gvalue = PWMTable[gvalue];
         break;
       case 'd':
+        debug_print("command line args got: %c\n",c);
         dvalue = atoi(optarg);
         break;
       case 'v': // value to set digit to
+        debug_print("command line args got: %c\n",c);
         vvalue = atoi(optarg);
         break;
       default:
+        debug_print("command line arg didn't match anything: %c\n",c);
         usage();
         exit(EXIT_FAILURE);
       }
@@ -468,6 +497,14 @@ void clockfn() {
       exit(0);
     }
 
+    if (brightness_option == 1) {
+      while (1) {
+        get_brightness ( tsl2561_address);
+        usleep(1000000);
+      }
+      exit (0);
+    }
+    
     if (walk_option == 1) {
       walk();
       exit(0);
