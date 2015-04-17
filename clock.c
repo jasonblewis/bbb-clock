@@ -25,7 +25,7 @@
 #include <signal.h>
 
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
-#define DEBUG 1
+#define DEBUG 0
 
 #define tlc5947_count 2
 #define tlc5947_channels 24
@@ -275,8 +275,8 @@ int recv_to(int fd, char *buffer, int len, int flags, int to) {
   tv.tv_usec = to * 1000;
   // select()
   result = select(fd+1, &readset, NULL, NULL, &tv);
-  printf("result: %d\n",result);
-  perror("select error:");
+  debug_print("result: %d\n",result);
+  debug_print("select error:");
      
   // Check status
   if (result < 0) {
@@ -291,7 +291,7 @@ int recv_to(int fd, char *buffer, int len, int flags, int to) {
       }
       // receive
       recv_result = recv(fd, buffer, len, flags);
-      printf("number of bytes received: %d\n",recv_result);
+      debug_print("number of bytes received: %d\n",recv_result);
       if (recv_result == 0) printf("recv result 0, TCP connection was closed\n");
       // set as before
       if (iof != -1)
@@ -351,12 +351,13 @@ int get_brightness(char *ipaddress) {
     debug_print("about to call recv_to\n");
     n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
     if (n > 0 ) {
-      recvBuff[n] = 0;
-      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+      recvBuff[n] = 0; //null terminate the string
+      sscanf(recvBuff, "Test. RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+      debug_print("broadband: %d\n",broadband);
       current_ambient = broadband;
-      if (fputs(recvBuff, stdout) == EOF) {
-        printf("\n Error : Fputs error\n");
-      }
+      /* if (fputs(recvBuff, stdout) == EOF) { */
+      /*   printf("\n Error : Fputs error\n"); */
+      /* } */
     } else {
       switch (n) {
       case 0:
@@ -391,21 +392,8 @@ void clockfn() {
     t = time(NULL);
     tm = *localtime(&t);
     
-    /* if (socket_open != 0) { // open the socket if its not already open */
-    /*   if (open_socket (tsl2561_address) != 0) { */
-    /*     printf("failed to open socket\n"); */
-    /*   } else { */
-    /*     socket_open = 1; */
-    /*   } */
-    /* } */
-  
-    /* if (socket_open != 0) { // now if its open, get the brightness */
+    get_brightness ( tsl2561_address);
 
-    /*   get_brightness(tsl2561_address); */
-
-    /*   close(sockfd); */
-
-    
       // convert to 12 hour clock
       current_hour = ((tm.tm_hour + 11) % 12 + 1);
     
@@ -499,7 +487,8 @@ void clockfn() {
 
     if (brightness_option == 1) {
       while (1) {
-        get_brightness ( tsl2561_address);
+        if (get_brightness ( tsl2561_address) != 0) {
+          printf("broadband brightness: %d\n",current_ambient);};
         usleep(1000000);
       }
       exit (0);
