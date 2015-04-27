@@ -458,7 +458,8 @@ void clockfn() {
       case 'g': // grey scale
         debug_print("command line args got: %c\n",c);
         gvalue = atoi(optarg);
-        gvalue = PWMTable[gvalue];
+        //gvalue = PWMTable[gvalue];
+        gvalue = gvalue;
         break;
       case 'd':
         debug_print("command line args got: %c\n",c);
