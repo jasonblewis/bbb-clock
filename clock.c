@@ -235,7 +235,7 @@ int spi_init(void) {
 }
 
 int set_digit(int digit, int val, uint16_t greyscale) {
-  debug_print("greyscale: %d\n",greyscale);
+  //debug_print("greyscale: %d\n",greyscale);
   if ((val < 0) || (val > BLANK)) {
     debug_print("Error: val was %d but must be in the range 0-9.\n", val);
     exit(EXIT_FAILURE);}
@@ -246,7 +246,7 @@ int set_digit(int digit, int val, uint16_t greyscale) {
   for (i = 0; i < SEGMENTS ; i++) {
     //buf[digit.segment[i]] = f[val][i] & greyscale;
     buf[segments[digit][i]] = f[val][i] & greyscale;
-    debug_print("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
+    //debug_print("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
   }
 }
 
@@ -261,7 +261,7 @@ void sigint_handler(int sig)
 }
 
 
-int recv_to(int fd, char *buffer, int len, int flags, int to) {
+int recv_to(int fd, char *buffer, int len, int flags, int time_out) {
 
   fd_set readset,tempset;
   int result,recv_result, iof = -1;
@@ -273,16 +273,15 @@ int recv_to(int fd, char *buffer, int len, int flags, int to) {
    
   // Initialize time out struct
   tv.tv_sec = 0;
-  tv.tv_usec = to * 1000;
+  tv.tv_usec = time_out * 1000;
   // select()
   result = select(fd+1, &readset, NULL, NULL, &tv);
-  debug_print("result: %d\n",result);
-  debug_print("select error:");
+  debug_print("select return result: %d\n",result);
      
   // Check status
   if (result < 0) {
     return -1;
-  } else
+  } else {
     if (result > 0 && FD_ISSET(fd, &readset)) {
       // Set non-blocking mode
       if ((iof = fcntl(fd, F_GETFL, 0)) != -1) {
@@ -299,7 +298,8 @@ int recv_to(int fd, char *buffer, int len, int flags, int to) {
         fcntl(fd, F_SETFL, iof);
       return recv_result;
     }
-  printf("result should be 0: %d\n",result);
+  }
+  debug_print("result should be 0: %d\n",result);
   return -2;
 }
 
@@ -347,6 +347,8 @@ int get_brightness(char *ipaddress) {
       debug_print("socket successfully opened\n");
       socket_open = 1;
     }
+  } else {
+    debug_print("socket already open, on with trying to read from it\n");
   }
   if ( socket_open !=0 ) { // now if its open, get the brightness
     debug_print("about to call recv_to\n");
@@ -354,21 +356,23 @@ int get_brightness(char *ipaddress) {
     if (n > 0 ) {
       recvBuff[n] = 0; //null terminate the string
       sscanf(recvBuff, "Test. RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
-      debug_print("broadband: %d\n",broadband);
+      debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
       current_ambient = broadband;
-      /* if (fputs(recvBuff, stdout) == EOF) { */
-      /*   printf("\n Error : Fputs error\n"); */
-      /* } */
+
+      if (brightness_option == 1) {
+            printf("broadband brightness: %d\n",current_ambient);
+      };
+      
     } else {
       switch (n) {
       case 0:
-        printf("\n read 0 bytes \n");
+        debug_print("recv_to result: read 0 bytes\n");
         break;        
       case -1:
-        printf("\n returned -1, read again later \n");
+        debug_print("recv_to result: returned -1, read again later\n");
         break;        
       case -2:
-        printf("\n timed out \n");
+        debug_print("recv_to result: timed out\n");
         break;        
       default:
         printf("got something we shouldn't have  - aborting\n");
@@ -487,14 +491,14 @@ void clockfn() {
       exit(0);
     }
 
-    if (brightness_option == 1) {
-      while (1) {
-        if (get_brightness ( tsl2561_address) != 0) {
-          printf("broadband brightness: %d\n",current_ambient);};
-        usleep(1000000);
-      }
-      exit (0);
-    }
+    /* if (brightness_option == 1) { */
+    /*   while (1) { */
+    /*     if (get_brightness ( tsl2561_address) != 0) { */
+    /*       printf("broadband brightness: %d\n",current_ambient);}; */
+    /*     usleep(1000000); */
+    /*   } */
+    /*   exit (0); */
+    /* } */
     
     if (walk_option == 1) {
       walk();
