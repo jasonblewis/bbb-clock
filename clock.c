@@ -11,6 +11,7 @@
 #include <linux/types.h>
 #include <linux/spi/spidev.h>
 #include <time.h>
+#include <math.h>
 
 
 // includes for reading tsl2561-daemon
@@ -156,6 +157,13 @@ void usage(void) {
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
 }
 
+uint16_t brightness_map(uint16_t brightness) {
+
+  //  return(round( ( (float) brightness * 34.9) + 1));
+  //  y=9.692 * x - 1.266
+  return( round (( 9.692 * brightness) - 1.266));
+}
+
 
 void update_average_brightness(void) {
 
@@ -163,8 +171,8 @@ void update_average_brightness(void) {
   for (uint16_t x = 0; x < brightness_samples ; x++) {
     sum = sum + brightness_buffer[x];
   }
-  current_ambient_average = sum / brightness_samples;
-  printf("current_ambient_average: %d\n",current_ambient_average);
+  current_ambient_average = round( (float)sum / (float) brightness_samples);
+  printf("current_ambient_average: %d, map: %d\n",current_ambient_average, brightness_map(current_ambient_average));
   
 }
 
@@ -391,6 +399,7 @@ int get_brightness(char *ipaddress) {
       current_ambient = broadband;
       add_brightness_to_buffer(current_ambient);
       update_average_brightness();
+      gvalue = brightness_map(current_ambient_average);
       if (brightness_option == 1) {
             printf("broadband brightness: %d\n",current_ambient);
       };
@@ -430,32 +439,30 @@ void clockfn() {
     tm = *localtime(&t);
     
     get_brightness ( tsl2561_address);
-
-      // convert to 12 hour clock
-      current_hour = ((tm.tm_hour + 11) % 12 + 1);
     
-      debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
-      debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
-
-      // if the leading digit of the hour is 0, display it as blank
-      if (nthdigit(current_hour,1) == 0) {
-        set_digit (3,BLANK,gvalue);
-      } else {
-        set_digit (3,nthdigit(current_hour,1),gvalue);
-      }
-      set_digit(2,nthdigit(current_hour,0),gvalue);
-      set_digit(1,nthdigit(tm.tm_min,1),gvalue);
-      set_digit(0,nthdigit(tm.tm_min,0),gvalue);
-      //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
-      // buf[colon[0][0]] = 1 * gvalue; // left top
-      // buf[colon[0][1]] = 1 * gvalue; // left bottom
-      buf[colon[1][0]] = 1 * gvalue; // 
-      buf[colon[1][1]] = 1 * gvalue; //
-      write_led_buffer();
-      usleep(500000); 
+    // convert to 12 hour clock
+    current_hour = ((tm.tm_hour + 11) % 12 + 1);
+    
+    debug_print("h: %d m: %d s: %d\n",tm.tm_hour, tm.tm_min, tm.tm_sec);
+    debug_print("nthdigit(tm.tm_hour,2): %d\n", nthdigit(tm.tm_hour,2));
+    
+    // if the leading digit of the hour is 0, display it as blank
+    if (nthdigit(current_hour,1) == 0) {
+      set_digit (3,BLANK,gvalue);
+    } else {
+      set_digit (3,nthdigit(current_hour,1),gvalue);
     }
-
-  
+    set_digit(2,nthdigit(current_hour,0),gvalue);
+    set_digit(1,nthdigit(tm.tm_min,1),gvalue);
+    set_digit(0,nthdigit(tm.tm_min,0),gvalue);
+    //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
+    // buf[colon[0][0]] = 1 * gvalue; // left top
+    // buf[colon[0][1]] = 1 * gvalue; // left bottom
+    buf[colon[1][0]] = 1 * gvalue; // 
+    buf[colon[1][1]] = 1 * gvalue; //
+    write_led_buffer();
+    usleep(500000); 
+  }
 }
 
 
@@ -560,6 +567,6 @@ void clockfn() {
 
   /*
     # Local Variables:
-    # compile-command: "gcc -g -std=c99 clock.c -o clock"
+    # compile-command: "gcc -g -lm -std=c99 clock.c -o clock"
     # End:
   */
