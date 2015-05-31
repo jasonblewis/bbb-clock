@@ -41,7 +41,14 @@
 static int sockfd = 0;
 static char recvBuff[1024];
 static int current_ambient;
-static char *tsl2561_address = "127.0.0.1";
+static char *tsl2561_address = "127.0.0.1"; // ip address for tsl2561
+                                            // brightness daemon
+#define moving_ave_period  10
+static int brightness_buffer[moving_ave_period];
+static int current_ambient_average;
+static uint16_t brightness_samples = 0;
+
+
 
 /* brown - p9_22 - clock
    green - p9_17 - /cs - chip select, latch
@@ -148,6 +155,28 @@ void usage(void) {
   printf("                 -t    show the time\n");
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
 }
+
+
+void update_average_brightness(void) {
+  // taken from here:
+  // http://stackoverflow.com/a/12886826/386557
+
+static int current_index = 0;
+
+ /* for (int i=0; i < moving_ave_period; i++) */
+ /*    { */
+ /*        brightness_buffer[current_index] = data[i]/period; */
+ /*        decimal ma = 0.0; */
+ /*        for (int j=0;j<period;j++) */
+ /*            { */
+ /*                ma += buffer[j]; */
+ /*            } */
+ /*        output[i] = ma; */
+ /*        current_index = (current_index + 1) % period; */
+ /*    } */
+  
+}
+
 
 int nthdigit(int x, int n)
 {
@@ -333,6 +362,17 @@ int open_socket(char *ipaddress) {
   return 0;
 }
 
+void add_brightness_to_buffer(int cb) {
+  static int16_t current_position = -1;
+
+  current_position = (current_position + 1) % moving_ave_period ;
+  brightness_buffer[current_position] = cb;
+  brightness_samples++;
+  if (brightness_samples > moving_ave_period) {
+    brightness_samples = moving_ave_period;
+  }
+};
+
 int get_brightness(char *ipaddress) {
   static int socket_open = 0;
 
@@ -358,7 +398,7 @@ int get_brightness(char *ipaddress) {
       sscanf(recvBuff, "Test. RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
       debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
       current_ambient = broadband;
-
+      add_brightness_to_buffer(current_ambient);
       if (brightness_option == 1) {
             printf("broadband brightness: %d\n",current_ambient);
       };
