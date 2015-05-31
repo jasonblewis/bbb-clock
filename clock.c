@@ -158,22 +158,13 @@ void usage(void) {
 
 
 void update_average_brightness(void) {
-  // taken from here:
-  // http://stackoverflow.com/a/12886826/386557
 
-static int current_index = 0;
-
- /* for (int i=0; i < moving_ave_period; i++) */
- /*    { */
- /*        brightness_buffer[current_index] = data[i]/period; */
- /*        decimal ma = 0.0; */
- /*        for (int j=0;j<period;j++) */
- /*            { */
- /*                ma += buffer[j]; */
- /*            } */
- /*        output[i] = ma; */
- /*        current_index = (current_index + 1) % period; */
- /*    } */
+  uint16_t sum = 0;
+  for (uint16_t x = 0; x < brightness_samples ; x++) {
+    sum = sum + brightness_buffer[x];
+  }
+  current_ambient_average = sum / brightness_samples;
+  printf("current_ambient_average: %d\n",current_ambient_average);
   
 }
 
@@ -399,6 +390,7 @@ int get_brightness(char *ipaddress) {
       debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
       current_ambient = broadband;
       add_brightness_to_buffer(current_ambient);
+      update_average_brightness();
       if (brightness_option == 1) {
             printf("broadband brightness: %d\n",current_ambient);
       };
