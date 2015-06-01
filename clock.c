@@ -46,7 +46,7 @@ static char *tsl2561_address = "127.0.0.1"; // ip address for tsl2561
                                             // brightness daemon
 #define moving_ave_period  10
 static int brightness_buffer[moving_ave_period];
-static int current_ambient_average;
+static float current_ambient_average;
 static uint16_t brightness_samples = 0;
 
 
@@ -157,11 +157,14 @@ void usage(void) {
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
 }
 
-uint16_t brightness_map(uint16_t brightness) {
+uint16_t brightness_map(float brightness) {
 
   //  return(round( ( (float) brightness * 34.9) + 1));
   //  y=9.692 * x - 1.266
-  return( round (( 9.692 * brightness) - 1.266));
+  uint16_t b;
+  b = round(( 9.692 * brightness) - 1.266) ;
+  
+  return ( (b < 5) ? 5 : b);
 }
 
 
@@ -171,8 +174,8 @@ void update_average_brightness(void) {
   for (uint16_t x = 0; x < brightness_samples ; x++) {
     sum = sum + brightness_buffer[x];
   }
-  current_ambient_average = round( (float)sum / (float) brightness_samples);
-  printf("current_ambient_average: %d, map: %d\n",current_ambient_average, brightness_map(current_ambient_average));
+  current_ambient_average =  (float) sum / (float) brightness_samples;
+  printf("current_ambient_average: %.2f, map: %d\n",current_ambient_average, brightness_map(current_ambient_average));
   
 }
 
