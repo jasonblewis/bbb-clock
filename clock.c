@@ -38,6 +38,9 @@
 #define connected_leds ((SEGMENTS * DIGITS) + DIGITS + EXTRA_LEDS)
 #define start_channel (channels - connected_leds) - 1
 #define default_brightness 1000
+//#define BRIGHTNESS_FACTOR 1.055484602
+#define BRIGHTNESS_FACTOR 1.040810774
+
 
 static int sockfd = 0;
 static char recvBuff[1024];
@@ -137,7 +140,9 @@ uint8_t mode = 0;
 
 int c = 0;
 int cvalue = -1; // channel to set
-uint16_t gvalue = -1; // to this greyscale value
+uint16_t gvalue = 0; // to this greyscale value
+int gvalue_set = 0; // flag to determine if we have set a gvalue or not
+uint16_t gvalue_previous = 0;
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
 int walk_option = 0; //by default don't run the walk
@@ -145,6 +150,7 @@ int clock_option = 0; //
 int help_option = 0;
 int brightness_option = 0;
 int quiet = 0;
+int dynamic_brightness = 1;
 
 int set_digit(int digit, int val, uint16_t greyscale);
 int write_led_buffer(void);
@@ -155,6 +161,8 @@ void usage(void) {
   printf("                 -b    show the current brightness detected by sensor\n");
   printf("                 -t    show the time\n");
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
+  printf("\n\n");
+  printf("  if greyscale is set then LED brightness will be fixed at greyscale\n");
 }
 
 uint16_t brightness_map(float brightness) {
@@ -163,8 +171,14 @@ uint16_t brightness_map(float brightness) {
   //  y=9.692 * x - 1.266
   uint16_t b;
   b = round(( 9.692 * brightness) - 1.266) ;
-  
-  return ( (b < 5) ? 5 : b);
+  if ( b >= 4015 ) {
+    return 4015;
+  } else if (b <= 5) {
+    return 5;
+  } else {
+    return ( (b < 5) ? 5 : b);
+  }
+  return 0;
 }
 
 
@@ -375,6 +389,19 @@ void add_brightness_to_buffer(int cb) {
   }
 };
 
+uint16_t min(uint16_t a, uint16_t b) {
+  if (a <= b)
+    return a;
+  else return b;
+}
+
+uint16_t max(uint16_t a, uint16_t b) {
+  if (a >= b)
+    return a;
+  else return b;
+}
+
+
 int get_brightness(char *ipaddress) {
   static int socket_open = 0;
 
@@ -402,8 +429,23 @@ int get_brightness(char *ipaddress) {
       current_ambient = broadband;
       add_brightness_to_buffer(current_ambient);
       update_average_brightness();
-      gvalue = brightness_map(current_ambient_average);
-      if (brightness_option == 1) {
+      if (dynamic_brightness) {
+        uint16_t map = brightness_map(current_ambient_average);
+        printf("gvalue: %d\n",gvalue);
+        uint16_t ngval;
+        if (map < gvalue) {
+          // descending in brightness
+          ngval = round((float) gvalue / BRIGHTNESS_FACTOR);
+          printf("descending ngval: %d\n",ngval);
+          gvalue = max(map, ngval);
+        } else {
+          // ascending brightness
+          ngval = round((float) gvalue * BRIGHTNESS_FACTOR);
+          printf("ascending ngval: %d\n",ngval);
+          gvalue = min(map,ngval);
+        };
+      };
+      if (brightness_option) {
             printf("broadband brightness: %d\n",current_ambient);
       };
       
@@ -432,7 +474,7 @@ int get_brightness(char *ipaddress) {
 
 void clockfn() {
   
-  if (gvalue == -1) { gvalue = default_brightness; }
+  if (!gvalue_set) { gvalue = default_brightness; }
   debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
@@ -506,7 +548,8 @@ void clockfn() {
         debug_print("command line args got: %c\n",c);
         gvalue = atoi(optarg);
         //gvalue = PWMTable[gvalue];
-        gvalue = gvalue;
+        gvalue_set = 1;
+        dynamic_brightness = 0;
         break;
       case 'd':
         debug_print("command line args got: %c\n",c);
