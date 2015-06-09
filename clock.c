@@ -138,11 +138,9 @@ uint32_t speed = 1000000; /* max speed to run the SPI bus at in MHz */
 uint8_t bpw = BPW;
 uint8_t mode = 0;
 
-int c = 0;
 int cvalue = -1; // channel to set
 uint16_t gvalue = 0; // to this greyscale value
 int gvalue_set = 0; // flag to determine if we have set a gvalue or not
-uint16_t gvalue_previous = 0;
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
 int walk_option = 0; //by default don't run the walk
@@ -431,17 +429,14 @@ int get_brightness(char *ipaddress) {
       update_average_brightness();
       if (dynamic_brightness) {
         uint16_t map = brightness_map(current_ambient_average);
-        printf("gvalue: %d\n",gvalue);
         uint16_t ngval;
         if (map < gvalue) {
           // descending in brightness
           ngval = round((float) gvalue / BRIGHTNESS_FACTOR);
-          printf("descending ngval: %d\n",ngval);
           gvalue = max(map, ngval);
         } else {
           // ascending brightness
           ngval = round((float) gvalue * BRIGHTNESS_FACTOR);
-          printf("ascending ngval: %d\n",ngval);
           gvalue = min(map,ngval);
         };
       };
@@ -521,7 +516,7 @@ void clockfn() {
     uint8_t mode = 0;
 
     opterr = 0;
-     
+    int c;
     while ((c = getopt (argc, argv, "hwbc:g:d:v:t")) != -1) {
       switch (c) {
       case 'h': // show usage message
