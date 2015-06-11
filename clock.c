@@ -433,11 +433,16 @@ int get_brightness(char *ipaddress) {
         if (map < gvalue) {
           // descending in brightness
           ngval = round((float) gvalue / BRIGHTNESS_FACTOR);
+          printf("descending: gvalue %d map %d ngval %d\n",gvalue,map,ngval);
           gvalue = max(map, ngval);
-        } else {
+          
+        } else if (map > gvalue) {
           // ascending brightness
           ngval = round((float) gvalue * BRIGHTNESS_FACTOR);
+          printf("ascending: gvalue %d map %d ngval %d\n",gvalue,map,ngval);
           gvalue = min(map,ngval);
+        } else {
+          printf("map = gvalue: %d %d\n",map,gvalue);
         };
       };
       if (brightness_option) {
@@ -500,6 +505,11 @@ void clockfn() {
     // buf[colon[0][1]] = 1 * gvalue; // left bottom
     buf[colon[1][0]] = 1 * gvalue; // 
     buf[colon[1][1]] = 1 * gvalue; //
+    if (tm.tm_hour >= 12) { // set colon digit for hour
+      buf[colon[0][0]] = 1 * gvalue;
+    } else {
+      buf[colon[0][0]] = 0;
+    };
     write_led_buffer();
     usleep(500000); 
   }
