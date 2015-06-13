@@ -139,7 +139,8 @@ uint8_t bpw = BPW;
 uint8_t mode = 0;
 
 int cvalue = -1; // channel to set
-uint16_t gvalue = 0; // to this greyscale value
+//uint16_t gvalue = 0; // to this greyscale value
+float gvaluef = 0;
 int gvalue_set = 0; // flag to determine if we have set a gvalue or not
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
@@ -216,9 +217,9 @@ int walk(void) {
     debug_print("connected_leds: %d,", connected_leds );
     debug_print("start_channel: %d,", start_channel );
     debug_print("channels: %d\n", channels );
-    debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %d\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,gvalue);
+    debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %d\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,round(gvaluef));
     buf[(loopcounter % connected_leds ) + start_channel] = 0;
-    buf[((loopcounter+1) % connected_leds )+ start_channel ] = gvalue;
+    buf[((loopcounter+1) % connected_leds )+ start_channel ] = round(gvaluef);
     loopcounter++;
     usleep(100000);
       }
@@ -387,13 +388,13 @@ void add_brightness_to_buffer(int cb) {
   }
 };
 
-uint16_t min(uint16_t a, uint16_t b) {
+float min(float a, float b) {
   if (a <= b)
     return a;
   else return b;
 }
 
-uint16_t max(uint16_t a, uint16_t b) {
+float max(float a, float b) {
   if (a >= b)
     return a;
   else return b;
@@ -429,20 +430,20 @@ int get_brightness(char *ipaddress) {
       update_average_brightness();
       if (dynamic_brightness) {
         uint16_t map = brightness_map(current_ambient_average);
-        uint16_t ngval;
-        if (map < gvalue) {
+        float ngval;
+        if (map < gvaluef) {
           // descending in brightness
-          ngval = round((float) gvalue / BRIGHTNESS_FACTOR);
-          printf("descending: gvalue %d map %d ngval %d\n",gvalue,map,ngval);
-          gvalue = max(map, ngval);
+          ngval = gvaluef / BRIGHTNESS_FACTOR;
+          printf("descending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
+          gvaluef = max(map, ngval);
           
-        } else if (map > gvalue) {
+        } else if (map > gvaluef) {
           // ascending brightness
-          ngval = round((float) gvalue * BRIGHTNESS_FACTOR);
-          printf("ascending: gvalue %d map %d ngval %d\n",gvalue,map,ngval);
-          gvalue = min(map,ngval);
+          ngval = gvaluef * BRIGHTNESS_FACTOR;
+          printf("ascending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
+          gvaluef = min(map,ngval);
         } else {
-          printf("map = gvalue: %d %d\n",map,gvalue);
+          printf("map = gvaluef: %d %.2f\n",map,gvaluef);
         };
       };
       if (brightness_option) {
@@ -474,7 +475,7 @@ int get_brightness(char *ipaddress) {
 
 void clockfn() {
   
-  if (!gvalue_set) { gvalue = default_brightness; }
+  if (!gvalue_set) { gvaluef = default_brightness; }
   debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
@@ -493,20 +494,20 @@ void clockfn() {
     
     // if the leading digit of the hour is 0, display it as blank
     if (nthdigit(current_hour,1) == 0) {
-      set_digit (3,BLANK,gvalue);
+      set_digit (3,BLANK,round(gvaluef));
     } else {
-      set_digit (3,nthdigit(current_hour,1),gvalue);
+      set_digit (3,nthdigit(current_hour,1),round(gvaluef));
     }
-    set_digit(2,nthdigit(current_hour,0),gvalue);
-    set_digit(1,nthdigit(tm.tm_min,1),gvalue);
-    set_digit(0,nthdigit(tm.tm_min,0),gvalue);
+    set_digit(2,nthdigit(current_hour,0),round(gvaluef));
+    set_digit(1,nthdigit(tm.tm_min,1),round(gvaluef));
+    set_digit(0,nthdigit(tm.tm_min,0),round(gvaluef));
     //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
     // buf[colon[0][0]] = 1 * gvalue; // left top
     // buf[colon[0][1]] = 1 * gvalue; // left bottom
-    buf[colon[1][0]] = 1 * gvalue; // 
-    buf[colon[1][1]] = 1 * gvalue; //
+    buf[colon[1][0]] = 1 * round(gvaluef); // 
+    buf[colon[1][1]] = 1 * round(gvaluef); //
     if (tm.tm_hour >= 12) { // set colon digit for hour
-      buf[colon[0][0]] = 1 * gvalue;
+      buf[colon[0][0]] = 1 * round(gvaluef);
     } else {
       buf[colon[0][0]] = 0;
     };
@@ -551,7 +552,7 @@ void clockfn() {
         break;
       case 'g': // grey scale
         debug_print("command line args got: %c\n",c);
-        gvalue = atoi(optarg);
+        gvaluef = atoi(optarg);
         //gvalue = PWMTable[gvalue];
         gvalue_set = 1;
         dynamic_brightness = 0;
@@ -572,7 +573,7 @@ void clockfn() {
     }
 
   
-    debug_print("cvalue: %d, gvalue: %d, dvalue: %d, vvalue: %d\n",cvalue,gvalue,dvalue,vvalue);
+    debug_print("cvalue: %d, gvalue: %.2f, dvalue: %d, vvalue: %d\n",cvalue,gvaluef,dvalue,vvalue);
     spi_init();
 
 
@@ -602,15 +603,15 @@ void clockfn() {
 
     if (dvalue >= 0) {
       // setting a digit to a value
-      if ((vvalue < 0) || (gvalue < 0)) {
+      if ((vvalue < 0) || (gvaluef < 0)) {
         debug_print("Error: -g and -v must both be set to use the digit option");
         exit(EXIT_FAILURE);
       }
-      set_digit(dvalue,vvalue,gvalue);
+      set_digit(dvalue,vvalue,round(gvaluef));
       write_led_buffer();
     } else {
       /// assuming we are setting individual segments
-      buf[cvalue] = gvalue;
+      buf[cvalue] = round(gvaluef);
       write_led_buffer();
     }
     close(file);
