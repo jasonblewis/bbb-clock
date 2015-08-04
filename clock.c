@@ -439,6 +439,10 @@ int get_brightness(char *ipaddress) {
           
         } else if (map > gvaluef) {
           // ascending brightness
+          if (gvaluef <= 0) { // if gvaluef is 0 it will never
+                              // increase so just change it to 1
+            gvaluef = 1;
+          }
           ngval = gvaluef * BRIGHTNESS_FACTOR;
           printf("ascending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
           gvaluef = min(map,ngval);
@@ -475,7 +479,7 @@ int get_brightness(char *ipaddress) {
 
 void clockfn() {
   
-  if (!gvalue_set) { gvaluef = default_brightness; }
+  if (!gvalue_set) { gvaluef = 0; }
   debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
