@@ -7,4 +7,7 @@ for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1;
 #+END_SRC
 
 *** Walk the segments, displaying 1 segment at a time
-    
+** To Compile:
+#+BEGIN_SRC bash
+gcc -g -lm -std=c99 clock.c -o clock
+#+end_SRC bash
