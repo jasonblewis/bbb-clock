@@ -1,4 +1,4 @@
-#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -169,7 +169,7 @@ uint16_t brightness_map(float brightness) {
   //  return(round( ( (float) brightness * 34.9) + 1));
   //  y=9.692 * x - 1.266
   uint16_t b;
-  b = round(( 9.692 * brightness) - 1.266) ;
+  b = lrint(( 9.692 * brightness) - 1.266) ;
   if ( b >= 4015 ) {
     return 4015;
   } else if (b <= 5) {
@@ -217,7 +217,7 @@ int walk(void) {
     debug_print("connected_leds: %d,", connected_leds );
     debug_print("start_channel: %d,", start_channel );
     debug_print("channels: %d\n", channels );
-    debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %d\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,round(gvaluef));
+    debug_print("loopcounter: %d mod %d + %d: %d, gvalue: %ld\n",loopcounter,connected_leds,start_channel, (loopcounter % connected_leds )+ start_channel,lrint(gvaluef));
     buf[(loopcounter % connected_leds ) + start_channel] = 0;
     buf[((loopcounter+1) % connected_leds )+ start_channel ] = round(gvaluef);
     loopcounter++;
@@ -276,6 +276,9 @@ int spi_init(void) {
   else {
     debug_print("mode is %d\n",mode);
   }
+  // if we get here, we should return 0 as no errors detected
+  // avoid the error: control reaches end of non-void function [-Werror=return-type] error
+  return 0;
 }
 
 int set_digit(int digit, int val, uint16_t greyscale) {
@@ -292,6 +295,9 @@ int set_digit(int digit, int val, uint16_t greyscale) {
     buf[segments[digit][i]] = f[val][i] & greyscale;
     //debug_print("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
   }
+  // if we get here, we should return 0 as no errors detected
+  // avoid the error: control reaches end of non-void function [-Werror=return-type] error
+  return 0;
 }
 
 
@@ -307,7 +313,7 @@ void sigint_handler(int sig)
 
 int recv_to(int fd, char *buffer, int len, int flags, int time_out) {
 
-  fd_set readset,tempset;
+  fd_set readset;
   int result,recv_result, iof = -1;
   struct timeval tv;
 
@@ -475,6 +481,9 @@ int get_brightness(char *ipaddress) {
   }
   socket_open = 0;
   close(sockfd);
+  // if we get here, we should return 0 as no errors detected
+  // avoid the error: control reaches end of non-void function [-Werror=return-type] error
+  return 0;
 }
 
 void clockfn() {
@@ -526,9 +535,9 @@ void clockfn() {
     // set up ctrl-c signal handler
     signal(SIGINT, sigint_handler);
 
-    uint32_t speed = 1000000;
-    uint8_t bpw = BPW;
-    uint8_t mode = 0;
+    //uint32_t speed = 1000000;
+    //    uint8_t bpw = BPW;
+    //    uint8_t mode = 0;
 
     opterr = 0;
     int c;
@@ -623,6 +632,6 @@ void clockfn() {
 
   /*
     # Local Variables:
-    # compile-command: "gcc -g -lm -std=c99 clock.c -o clock"
+    # compile-command: "make clock"
     # End:
   */
