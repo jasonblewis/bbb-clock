@@ -51,7 +51,7 @@ static char *tsl2561_address = "127.0.0.1"; // ip address for tsl2561
 static int brightness_buffer[moving_ave_period];
 static float current_ambient_average;
 static uint16_t brightness_samples = 0;
-
+static int gpio20fd;
 
 
 /* brown - p9_22 - clock
@@ -240,6 +240,48 @@ int write_led_buffer(void) {
   return 0;
 }
 
+// initialise gpio20 ready for blanking output on tlc5947 chips
+int gpio20_init(void) {
+    // see https://www.ics.com/blog/how-control-gpio-hardware-c-or-c
+
+    // Export the desired pin by writing to /sys/class/gpio/export
+
+    int fd = open("/sys/class/gpio/export", O_WRONLY);
+    if (fd == -1) {
+        perror("Unable to open /sys/class/gpio/export");
+        exit(1);
+    }
+
+    if (write(fd, "20", 2) != 2) {
+        perror("Error writing to /sys/class/gpio/export");
+        exit(1);
+    }
+
+    close(fd);
+
+    // Set the pin to be an output by writing "out" to /sys/class/gpio/gpio24/direction
+
+    fd = open("/sys/class/gpio/gpio20/direction", O_WRONLY);
+    if (fd == -1) {
+        perror("Unable to open /sys/class/gpio/gpio20/direction");
+        exit(1);
+    }
+
+    if (write(fd, "out", 3) != 3) {
+        perror("Error writing to /sys/class/gpio/gpio20/direction");
+        exit(1);
+    }
+
+    close(fd);
+    // open the gpio ready for writing
+    gpio20fd = open("/sys/class/gpio/gpio20/value", O_WRONLY);
+    if (fd == -1) {
+        perror("Unable to open /sys/class/gpio/gpio20/value");
+        exit(1);
+    } 
+  return 0;  
+}
+
 int spi_init(void) {
   int i;
   for (i = 0; i < channels ; i++) {
@@ -304,9 +346,11 @@ int set_digit(int digit, int val, uint16_t greyscale) {
 void sigint_handler(int sig)
 {
   /*do something*/
+  debug_print("SIGINT %d received",sig);
   printf("killing process %d\n",getpid());
   printf("Closing socket\n");
   close(sockfd);
+  close(gpio20fd);
   exit(0);
 }
 
@@ -524,7 +568,22 @@ void clockfn() {
     } else {
       buf[colon[0][0]] = 0;
     };
+
+    //root@clock:/sys/class/gpio/gpio20# echo 0 > /sys/class/gpio/gpio20/value 
+        // blank by pulling gpio20 low
+        if (write(gpio20fd, "0", 1) != 1) {
+          debug_print("Error writing to /sys/class/gpio/gpio24/value");
+          exit(1);
+        }
+        
     write_led_buffer();
+    //root@clock:/sys/class/gpio/gpio20# echo 1 > /sys/class/gpio/gpio20/value
+    // unblank by pulling gpio20 high
+        if (write(gpio20fd, "1", 1) != 1) {
+            debug_print("Error writing to /sys/class/gpio/gpio24/value");
+            exit(1);
+        }
+
     usleep(500000); 
   }
 }
@@ -587,6 +646,7 @@ void clockfn() {
 
   
     debug_print("cvalue: %d, gvalue: %.2f, dvalue: %d, vvalue: %d\n",cvalue,gvaluef,dvalue,vvalue);
+    gpio20_init();
     spi_init();
 
 
