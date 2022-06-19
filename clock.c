@@ -240,11 +240,32 @@ int write_led_buffer(void) {
   return 0;
 }
 
+
+// unexport gpio20 - usually called from atexit
+void gpio20_unexport(void) {
+    int fd = open("/sys/class/gpio/unexport", O_WRONLY);
+    if (fd == -1) {
+        perror("Unable to open /sys/class/gpio/unexport");
+        exit(1);
+    }
+    if (write(fd, "20", 2) != 2) {
+        perror("Error writing 20 to /sys/class/gpio/unexport");
+        exit(1);
+    }
+
+}
+
 // initialise gpio20 ready for blanking output on tlc5947 chips
 int gpio20_init(void) {
     // see https://www.ics.com/blog/how-control-gpio-hardware-c-or-c
 
     // Export the desired pin by writing to /sys/class/gpio/export
+
+    // before exporting - check the gpio isn't already exported
+    // if not exists  /sys/class/gpio/gpio20/value
+
+  //      then initialise the gpio
+  
 
     int fd = open("/sys/class/gpio/export", O_WRONLY);
     if (fd == -1) {
@@ -278,7 +299,9 @@ int gpio20_init(void) {
     if (fd == -1) {
         perror("Unable to open /sys/class/gpio/gpio20/value");
         exit(1);
-    } 
+    }
+    // ensure we unexport gpio20 at exit time
+    atexit(gpio20_unexport);
   return 0;  
 }
 
