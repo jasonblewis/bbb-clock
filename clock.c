@@ -644,16 +644,14 @@ void clockfn() {
       }
     }
 
-  
-    debug_print("cvalue: %d, gvalue: %.2f, dvalue: %d, vvalue: %d\n",cvalue,gvaluef,dvalue,vvalue);
-    gpio20_init();
-    spi_init();
-
-
     if (help_option == 1) {
       usage();
       exit(0);
     }
+
+    debug_print("cvalue: %d, gvalue: %.2f, dvalue: %d, vvalue: %d\n",cvalue,gvaluef,dvalue,vvalue);
+    gpio20_init();
+    spi_init();
 
     /* if (brightness_option == 1) { */
     /*   while (1) { */
