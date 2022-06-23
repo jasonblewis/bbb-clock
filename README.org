@@ -11,3 +11,27 @@ for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1;
 #+END_SRC
 
 *** Walk the segments, displaying 1 segment at a time
+* to write to gpios from C
+see https://www.ics.com/blog/how-control-gpio-hardware-c-or-c
+#+begin_src 
+#+end_src
+* Initial Setup Tasks
+** disable hdmi to allow spi1 bus:
+uncomment
+
+disable_uboot_overlay_video=1
+
+in the /boot/uEnv.txt file
+** set up udev devices for GPIO access:
+edit 
+
+/usr/lib/udev/rules.d/00-gpio.rules
+
+add 
+#+begin_src
+SUBSYSTEM=="subsystem", KERNEL=="gpio", ACTION=="add", \
+  RUN+="/bin/mkdir -p /dev/gpio"
+
+SUBSYSTEM=="gpio", ACTION=="add", TEST=="value", ATTR{label}!="sysfs", \
+  RUN+="/bin/ln -sT '/sys/class/gpio/%k' /dev/gpio/%s{label}"
+#+end_src
