@@ -35,3 +35,12 @@ SUBSYSTEM=="subsystem", KERNEL=="gpio", ACTION=="add", \
 SUBSYSTEM=="gpio", ACTION=="add", TEST=="value", ATTR{label}!="sysfs", \
   RUN+="/bin/ln -sT '/sys/class/gpio/%k' /dev/gpio/%s{label}"
 #+end_src
+and reboot
+** set up the RTC module ds1307
+
+
+** set up the TLS2561 Luminosity sensor
+https://www.adafruit.com/product/439
+** blank the LEDs on the wifi module if required?
+
+
