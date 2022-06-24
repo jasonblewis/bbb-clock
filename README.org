@@ -11,8 +11,42 @@ for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1;
 #+END_SRC
 
 *** Walk the segments, displaying 1 segment at a time
+* to write to gpios from C
+see https://www.ics.com/blog/how-control-gpio-hardware-c-or-c
+#+begin_src 
+#+end_src
 * Startup processes
 ** tsl2561 daemon - reads the ambient brightness and reports to clock process
 ** rtc - runs the real time clock 
 ** displayon - turns the display on - not convinced this is the best approach. will move to the c program
 ** clock - starts the clock daemon that manages the display
+
+* Initial Setup Tasks
+** disable hdmi to allow spi1 bus:
+uncomment
+
+disable_uboot_overlay_video=1
+
+in the /boot/uEnv.txt file
+** set up udev devices for GPIO access:
+edit 
+
+/usr/lib/udev/rules.d/00-gpio.rules
+
+add 
+#+begin_src
+SUBSYSTEM=="subsystem", KERNEL=="gpio", ACTION=="add", \
+  RUN+="/bin/mkdir -p /dev/gpio"
+
+SUBSYSTEM=="gpio", ACTION=="add", TEST=="value", ATTR{label}!="sysfs", \
+  RUN+="/bin/ln -sT '/sys/class/gpio/%k' /dev/gpio/%s{label}"
+#+end_src
+and reboot
+** set up the RTC module ds1307
+
+
+** set up the TLS2561 Luminosity sensor
+https://www.adafruit.com/product/439
+** blank the LEDs on the wifi module if required?
+
+
