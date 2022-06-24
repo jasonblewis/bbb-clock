@@ -11,3 +11,8 @@ for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1;
 #+END_SRC
 
 *** Walk the segments, displaying 1 segment at a time
+* Startup processes
+** tsl2561 daemon - reads the ambient brightness and reports to clock process
+** rtc - runs the real time clock 
+** displayon - turns the display on - not convinced this is the best approach. will move to the c program
+** clock - starts the clock daemon that manages the display
