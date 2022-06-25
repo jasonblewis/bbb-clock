@@ -49,4 +49,7 @@ https://learn.adafruit.com/adding-a-real-time-clock-to-beaglebone-black/set-rtc-
 https://www.adafruit.com/product/439
 ** blank the LEDs on the wifi module if required?
 
-
+#+begin_src bash
+# turn off wifi green LED
+echo none >  /sys/class/leds/ath9k_htc-phy0/trigger
+#+end_src
