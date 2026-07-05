@@ -175,12 +175,20 @@ static int arm_a(uint16_t gray, long total_secs, int hb) {
 }
 
 /* ---- Arm B: hammer ---- */
-enum { PAT_CYCLE, PAT_AA55 };
+enum { PAT_CYCLE, PAT_AA55, PAT_STEADY };
+
+static const char *pat_name(int p) {
+    return p == PAT_AA55 ? "aa55" : p == PAT_STEADY ? "steady" : "cycle";
+}
 
 static int arm_b(uint16_t gray, int pattern, long total_secs, int hb) {
     fprintf(stderr, "[arm B] hammer: rewrite+relatch as fast as possible, pattern=%s\n",
-            pattern == PAT_AA55 ? "aa55" : "cycle");
+            pat_name(pattern));
     fprintf(stderr, "[arm B] a glitch here but not in Arm A = triggered by sending/latching.\n");
+    if (pattern == PAT_STEADY)
+        fprintf(stderr, "[arm B] steady: same DIM frame re-latched at max rate; image looks calm,\n"
+                        "        so any bright FLASH = a latch-triggered glitch (rate scales with hammering).\n");
+    fill_all(gray);   /* initial frame; PAT_STEADY keeps this unchanged */
     log_env("B-start");
 
     time_t start = time(NULL);
@@ -191,9 +199,10 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb) {
     while (!stop_flag) {
         if (pattern == PAT_AA55) {
             fill_all(toggle ? 0x0555 : 0x0AAA);   /* flip every bit each frame */
-        } else {
+        } else if (pattern == PAT_CYCLE) {
             fill_all(toggle ? 0 : gray);          /* dim <-> off each frame */
         }
+        /* PAT_STEADY: leave buf at gray — hammer the latch, not the data */
         toggle ^= 1;
         if (frame_write() < 0) return 1;
         frames++;
@@ -219,7 +228,11 @@ static void usage(const char *me) {
       "  -a a|b     arm: a=static hold, b=hammer (required)\n"
       "  -g N       grayscale 0..4095 (default %d ~= 10%%). DIM on purpose.\n"
       "  -s HZ      SPI speed (default 1000000). Sweep 100000/1000000/4000000.\n"
-      "  -p cycle|aa55  Arm B pattern (default cycle)\n"
+      "  -p cycle|aa55|steady  Arm B pattern (default cycle):\n"
+      "               cycle  = dim<->off each frame (max data toggling)\n"
+      "               aa55   = 0xAAA<->0x555 each frame (flip every bit; framing/SI stress)\n"
+      "               steady = same DIM frame re-latched at max rate (best glitch VISIBILITY;\n"
+      "                        isolates latch-triggered corruption)\n"
       "  -m N       SPI mode 0..3 (default 0)\n"
       "  -T SECS    stop after SECS (default: run until Ctrl-C)\n"
       "  -H SECS    heartbeat/env-log interval (default 30; 0=off)\n"
@@ -244,7 +257,11 @@ int main(int argc, char **argv) {
         case 'a': arm = optarg[0]; break;
         case 'g': gray = strtol(optarg, NULL, 0); break;
         case 's': speed = (uint32_t)strtoul(optarg, NULL, 0); break;
-        case 'p': pattern = strcmp(optarg, "aa55") == 0 ? PAT_AA55 : PAT_CYCLE; break;
+        case 'p':
+            pattern = strcmp(optarg, "aa55") == 0   ? PAT_AA55
+                    : strcmp(optarg, "steady") == 0 ? PAT_STEADY
+                    : PAT_CYCLE;
+            break;
         case 'm': mode = (uint8_t)strtoul(optarg, NULL, 0); break;
         case 'T': total_secs = strtol(optarg, NULL, 0); break;
         case 'H': hb = (int)strtol(optarg, NULL, 0); break;
