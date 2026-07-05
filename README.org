@@ -124,11 +124,24 @@ Random bright LEDs from power-on until the software writes valid data.
   gpio20 low/pulled-down through boot. Then blanking never depends on software
   winning a race.
 
-** P2 — runtime random-bright glitch (root cause open)
+** P2 — runtime random-bright glitch (ROOT CAUSE FOUND — see docs/adr/0002)
 Rare, random, position-varying LEDs momentarily jump bright, *self-healing on the
 next ~500 ms refresh*, recurring every few seconds when it is happening at all.
 Frequency varies from "not for months" to frequent; a power cycle seems to help
 for a while.
+
+*Conclusion (2026-07-05, [[file:docs/adr/0002-p2-ribbon-crosstalk.md][ADR 0002]]):* P2 is *ribbon crosstalk* — the switching
+CLK/DIN edges couple into the CS/LATCH line (they share one 6-wire ribbon, and the
+board pinout puts CLK one wire from LAT with no ground between), causing a mistimed
+latch that captures a *partially-shifted* frame → a burst of consecutive channels
+latches brighter garbage. Established on-device with the =p2stress= harness:
+triggered only by *sending* (Arm B, not the static hold Arm A); flicker rate is a
+*U-curve in SPI clock* (min at 1 MHz, near-constant at 4 MHz) ⇒ serial-data-path, not
+VCC; glitches are *bursts of consecutive channels* biased to *Chip A* (photos in
+=ti-forum/=). Corroborated by Adafruit forum p=646976 post 9 (same fault; *1000 µF
+caps did NOT fix it*; crosstalk between the data/clock and latch/OE cables was the
+culprit). *Fix is wiring* (interleave grounds, esp. between CLK and LAT; series R on
+CLK; shorten), *not* the VCC cap and *not* lowering the SPI clock.
 
 *** Established
 - It is a *physical-layer* fault, *not* a =clock.c= logic bug: every frame

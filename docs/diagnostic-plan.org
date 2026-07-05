@@ -30,11 +30,11 @@ anything or changing code, SSH in and record:
   be 0). Add a debug print or read back via the =SPI_IOC_RD_*= ioctls.
 - [ ] Reconcile the =clock.c= pin comments (SPI0 / P9_17..22) with =spidev1.0=.
 
-** Phase 1 — cheap first fix (try before the big test)
-- [ ] Solder ~100 µF (correct type/ESR for the LM2931) onto VCC (=C1=/=C3=) on *both*
-  boards — closes the ~20 µF → ~100 µF stability gap.
-- [ ] Run the display dim for a good while and see whether the glitch rate collapses.
-- [ ] If it clearly fixes it → VCC stability confirmed; skip to Phase 3 write-up.
+** Phase 1 — cheap first fix (DEPRIORITISED — caps don't fix P2)
+Superseded by the Phase 2/3 result (see [[file:adr/0002-p2-ribbon-crosstalk.md][ADR 0002]]): P2 is ribbon
+crosstalk, not VCC. Adafruit forum p=646976 post 9 tried *1000 µF* and it did not
+help. Kept for the record; do the ribbon fix instead.
+- [ ] (optional, VCC hygiene only) ~100 µF onto VCC (=C1=/=C3=) — not expected to fix P2.
 
 ** Phase 2 — two-arm stress test (discriminates the cause)
 Build a small test harness / =clock= test mode (drives grayscale directly).
@@ -51,8 +51,14 @@ Build a small test harness / =clock= test mode (drives grayscale directly).
 - [ ] Optional scope: VCC (LM2931 output) and BBB-vs-far-chip ground during Arm B —
   watch for VCC dips/ringing or ground bounce coinciding with glitches.
 
-** Phase 3 — conclude & fix P2
-Decide from Phase 1/2 results:
+** Phase 3 — conclude & fix P2  [CONCLUDED — see docs/adr/0002]
+*Result:* P2 is *transfer/latch triggered* (Arm B, not Arm A) AND *rate tracks SPI
+clock* (U-curve, min at 1 MHz) ⇒ *framing / signal integrity*, specifically *ribbon
+crosstalk from CLK/DIN into the CS/LATCH line* → mistimed latch captures a partial
+frame. Fix: *interleave grounds in the ribbon* (esp. between CLK and LAT), series R on
+CLK, shorten the run — NOT the VCC cap, NOT lowering the clock. Recorded in
+[[file:adr/0002-p2-ribbon-crosstalk.md][ADR 0002]].
+Original decision matrix (all consistent with the above):
 - [ ] *Arm A glitches (spontaneous)* → VCC/ground integrity. Fix: correct VCC output
   cap, star-ground, local decoupling. *Do not* reduce the refresh rate (it is
   self-healing these).
