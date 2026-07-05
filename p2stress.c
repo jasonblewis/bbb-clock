@@ -159,9 +159,33 @@ static void fill_all(uint16_t v) {
 /* 3-level walking pattern: off / ~20% / ~50%, phase-shifted by step.
  * A corrupted channel jumping bright stands out against known-level neighbours. */
 static const uint16_t walk_levels[3] = {0, 819, 2047};  /* 0%, ~20%, ~50% of 4095 */
+
+/* PHYSICAL display order (channel index is scrambled vs. what the eye sees).
+ * Layout is HH:MM, left to right: digit3 digit2 : digit1 digit0, segments A..G.
+ * Marching the pattern along THIS order makes a clean wave move across the panel,
+ * so a glitch is an obvious break. From the clock.c segment/colon maps. */
+static const int seq_channels[] = {
+    45,44,26,25,24,46,47, 27,   /* digit 3 (hours tens, leftmost) A B C D E F G + DP */
+    21,20, 2, 1, 0,22,23,  3,   /* digit 2 (hours units)          A B C D E F G + DP */
+    39,40,43,41,                /* colon (between hours and minutes)                 */
+    17,16, 6, 5, 4,18,19,  7,   /* digit 1 (minutes tens)         A B C D E F G + DP */
+    13,12,10, 9, 8,14,15, 11,   /* digit 0 (minutes units, rightmost) A B C D E F G + DP */
+};
+#define SEQ_LEN ((int)(sizeof(seq_channels)/sizeof(seq_channels[0])))
+
 static void fill_walk(int step) {
-    for (int i = 0; i < CHANNELS; i++)
-        buf[i] = walk_levels[(i + step) % 3];
+    for (int i = 0; i < CHANNELS; i++) buf[i] = 0;   /* everything off first */
+    for (int k = 0; k < SEQ_LEN; k++)                /* then the wave, in view order */
+        buf[seq_channels[k]] = walk_levels[(k + step) % 3];
+}
+
+/* HOLE: all connected segments at one dim level, a single OFF "hole" walking the
+ * sequence. Uniform field makes a bright flicker pop; if the hole itself lights or
+ * any segment jumps bright = a glitch. */
+static void fill_hole(int step, uint16_t gray) {
+    for (int i = 0; i < CHANNELS; i++) buf[i] = 0;
+    for (int k = 0; k < SEQ_LEN; k++) buf[seq_channels[k]] = gray & GS_MAX;
+    buf[seq_channels[((step % SEQ_LEN) + SEQ_LEN) % SEQ_LEN]] = 0;   /* the walking hole */
 }
 
 /* ---- Arm A: static hold ---- */
@@ -189,14 +213,14 @@ static int arm_a(uint16_t gray, long total_secs, int hb) {
 }
 
 /* ---- Arm B: hammer ---- */
-enum { PAT_CYCLE, PAT_AA55, PAT_STEADY, PAT_WALK };
+enum { PAT_CYCLE, PAT_AA55, PAT_STEADY, PAT_WALK, PAT_HOLE };
 
 static const char *pat_name(int p) {
     return p == PAT_AA55 ? "aa55" : p == PAT_STEADY ? "steady"
-         : p == PAT_WALK ? "walk" : "cycle";
+         : p == PAT_WALK ? "walk" : p == PAT_HOLE ? "hole" : "cycle";
 }
 
-static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay_us) {
+static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay_us, long walk_ms) {
     fprintf(stderr, "[arm B] hammer: pattern=%s, inter-latch delay=%ld us (%s)\n",
             pat_name(pattern), delay_us,
             delay_us <= 0 ? "max rate" : "throttled");
@@ -208,6 +232,7 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay
                         "        inherent per-latch disturbance (NOT P2) — throttle with -i until it clears.\n");
     fill_all(gray);   /* initial frame; PAT_STEADY keeps this unchanged */
     if (pattern == PAT_WALK) fill_walk(0);
+    if (pattern == PAT_HOLE) fill_hole(0, gray);
     log_env("B-start");
 
     time_t start = time(NULL);
@@ -215,11 +240,11 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay
     unsigned long frames = 0;
     int toggle = 0;
 
-    /* walk cadence: shift the pattern ~4x/sec, independent of latch rate */
+    /* walk/hole cadence: advance one step every walk_ms, independent of latch rate */
     struct timeval tv0, tvn;
     gettimeofday(&tv0, NULL);
     int walk_step = 0;
-    const long WALK_MS = 250;
+    if (walk_ms <= 0) walk_ms = 250;
 
     while (!stop_flag) {
         if (pattern == PAT_AA55) {
@@ -228,11 +253,15 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay
         } else if (pattern == PAT_CYCLE) {
             fill_all(toggle ? 0 : gray);          /* dim <-> off each frame */
             toggle ^= 1;
-        } else if (pattern == PAT_WALK) {
+        } else if (pattern == PAT_WALK || pattern == PAT_HOLE) {
             gettimeofday(&tvn, NULL);
             long ms = (tvn.tv_sec - tv0.tv_sec) * 1000 + (tvn.tv_usec - tv0.tv_usec) / 1000;
-            int want = (int)(ms / WALK_MS);
-            if (want != walk_step) { walk_step = want; fill_walk(walk_step); }
+            int want = (int)(ms / walk_ms);
+            if (want != walk_step) {
+                walk_step = want;
+                if (pattern == PAT_HOLE) fill_hole(walk_step, gray);
+                else fill_walk(walk_step);
+            }
         }
         /* PAT_STEADY: leave buf at gray — hammer the latch, not the data */
         if (frame_write() < 0) return 1;
@@ -260,13 +289,14 @@ static void usage(const char *me) {
       "  -a a|b     arm: a=static hold, b=hammer (required)\n"
       "  -g N       grayscale 0..4095 (default %d ~= 10%%). DIM on purpose.\n"
       "  -s HZ      SPI speed (default 1000000). Sweep 100000/1000000/4000000.\n"
-      "  -p cycle|aa55|steady|walk  Arm B pattern (default cycle):\n"
+      "  -p cycle|aa55|steady|walk|hole  Arm B pattern (default cycle):\n"
       "               cycle  = dim<->off each frame (max data toggling)\n"
       "               aa55   = 0xAAA<->0x555 each frame (flip every bit; framing/SI stress)\n"
-      "               steady = same DIM frame re-latched at max rate (best glitch VISIBILITY;\n"
-      "                        isolates latch-triggered corruption)\n"
-      "               walk   = off/20%%/50%% pattern marching across channels ~4x/sec\n"
-      "                        (realistic mixed levels; a corrupted channel stands out)\n"
+      "               steady = same DIM frame re-latched at max rate (isolates latch-triggered)\n"
+      "               walk   = off/20%%/50%% pattern marching in display order\n"
+      "               hole   = ALL segments dim, one OFF 'hole' walking in display order\n"
+      "                        (uniform field -> a bright flicker pops; best for spotting P2)\n"
+      "  -w MS      walk/hole step period in ms (default 250; larger = slower/easier to track)\n"
       "  -o CHAN    force channel CHAN (0..47) OFF as a per-test film fingerprint\n"
       "               (use a different channel each run to tell videos apart)\n"
       "  -m N       SPI mode 0..3 (default 0)\n"
@@ -290,9 +320,10 @@ int main(int argc, char **argv) {
     long  total_secs = 0;
     int   hb = 30;
     long  delay_us = 0;
+    long  walk_ms = 250;
 
     int c;
-    while ((c = getopt(argc, argv, "a:g:s:p:m:i:o:T:H:h")) != -1) {
+    while ((c = getopt(argc, argv, "a:g:s:p:m:i:o:w:T:H:h")) != -1) {
         switch (c) {
         case 'a': arm = optarg[0]; break;
         case 'g': gray = strtol(optarg, NULL, 0); break;
@@ -301,11 +332,13 @@ int main(int argc, char **argv) {
             pattern = strcmp(optarg, "aa55") == 0   ? PAT_AA55
                     : strcmp(optarg, "steady") == 0 ? PAT_STEADY
                     : strcmp(optarg, "walk") == 0   ? PAT_WALK
+                    : strcmp(optarg, "hole") == 0   ? PAT_HOLE
                     : PAT_CYCLE;
             break;
         case 'm': mode = (uint8_t)strtoul(optarg, NULL, 0); break;
         case 'i': delay_us = strtol(optarg, NULL, 0); break;
         case 'o': g_off_channel = (int)strtol(optarg, NULL, 0); break;
+        case 'w': walk_ms = strtol(optarg, NULL, 0); break;
         case 'T': total_secs = strtol(optarg, NULL, 0); break;
         case 'H': hb = (int)strtol(optarg, NULL, 0); break;
         case 'h': default: usage(argv[0]); return (c == 'h') ? 0 : 2;
@@ -326,7 +359,7 @@ int main(int argc, char **argv) {
 
     int rc = (arm == 'a')
         ? arm_a((uint16_t)gray, total_secs, hb)
-        : arm_b((uint16_t)gray, pattern, total_secs, hb, delay_us);
+        : arm_b((uint16_t)gray, pattern, total_secs, hb, delay_us, walk_ms);
 
     /* leave the last frame latched on exit (do not blank) so a held glitch
      * stays visible for inspection; the clock service will reclaim on restart. */
