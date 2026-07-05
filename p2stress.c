@@ -52,6 +52,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <time.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 #include <linux/types.h>
 #include <linux/spi/spidev.h>
@@ -138,8 +139,13 @@ static int spi_open(uint32_t speed, uint8_t mode) {
     return 0;
 }
 
+/* per-test fingerprint: force one channel OFF so films can be told apart.
+ * Applied at the single write choke point so it holds for every arm/pattern. */
+static int g_off_channel = -1;
+
 /* one frame = shift 48 x 12 bits (2 x 288) then latch on CS deassert */
 static int frame_write(void) {
+    if (g_off_channel >= 0 && g_off_channel < CHANNELS) buf[g_off_channel] = 0;
     int n = (int)(sizeof(buf[0]) * CHANNELS);
     int w = (int)write(file, &buf, n);
     if (w != n) { perror("write spi"); return -1; }
@@ -148,6 +154,14 @@ static int frame_write(void) {
 
 static void fill_all(uint16_t v) {
     for (int i = 0; i < CHANNELS; i++) buf[i] = v & GS_MAX;
+}
+
+/* 3-level walking pattern: off / ~20% / ~50%, phase-shifted by step.
+ * A corrupted channel jumping bright stands out against known-level neighbours. */
+static const uint16_t walk_levels[3] = {0, 819, 2047};  /* 0%, ~20%, ~50% of 4095 */
+static void fill_walk(int step) {
+    for (int i = 0; i < CHANNELS; i++)
+        buf[i] = walk_levels[(i + step) % 3];
 }
 
 /* ---- Arm A: static hold ---- */
@@ -175,10 +189,11 @@ static int arm_a(uint16_t gray, long total_secs, int hb) {
 }
 
 /* ---- Arm B: hammer ---- */
-enum { PAT_CYCLE, PAT_AA55, PAT_STEADY };
+enum { PAT_CYCLE, PAT_AA55, PAT_STEADY, PAT_WALK };
 
 static const char *pat_name(int p) {
-    return p == PAT_AA55 ? "aa55" : p == PAT_STEADY ? "steady" : "cycle";
+    return p == PAT_AA55 ? "aa55" : p == PAT_STEADY ? "steady"
+         : p == PAT_WALK ? "walk" : "cycle";
 }
 
 static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay_us) {
@@ -192,6 +207,7 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay
                         "        NB: at very high rate a uniform whole-display shimmer is the\n"
                         "        inherent per-latch disturbance (NOT P2) — throttle with -i until it clears.\n");
     fill_all(gray);   /* initial frame; PAT_STEADY keeps this unchanged */
+    if (pattern == PAT_WALK) fill_walk(0);
     log_env("B-start");
 
     time_t start = time(NULL);
@@ -199,14 +215,26 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay
     unsigned long frames = 0;
     int toggle = 0;
 
+    /* walk cadence: shift the pattern ~4x/sec, independent of latch rate */
+    struct timeval tv0, tvn;
+    gettimeofday(&tv0, NULL);
+    int walk_step = 0;
+    const long WALK_MS = 250;
+
     while (!stop_flag) {
         if (pattern == PAT_AA55) {
             fill_all(toggle ? 0x0555 : 0x0AAA);   /* flip every bit each frame */
+            toggle ^= 1;
         } else if (pattern == PAT_CYCLE) {
             fill_all(toggle ? 0 : gray);          /* dim <-> off each frame */
+            toggle ^= 1;
+        } else if (pattern == PAT_WALK) {
+            gettimeofday(&tvn, NULL);
+            long ms = (tvn.tv_sec - tv0.tv_sec) * 1000 + (tvn.tv_usec - tv0.tv_usec) / 1000;
+            int want = (int)(ms / WALK_MS);
+            if (want != walk_step) { walk_step = want; fill_walk(walk_step); }
         }
         /* PAT_STEADY: leave buf at gray — hammer the latch, not the data */
-        toggle ^= 1;
         if (frame_write() < 0) return 1;
         frames++;
 
@@ -232,11 +260,15 @@ static void usage(const char *me) {
       "  -a a|b     arm: a=static hold, b=hammer (required)\n"
       "  -g N       grayscale 0..4095 (default %d ~= 10%%). DIM on purpose.\n"
       "  -s HZ      SPI speed (default 1000000). Sweep 100000/1000000/4000000.\n"
-      "  -p cycle|aa55|steady  Arm B pattern (default cycle):\n"
+      "  -p cycle|aa55|steady|walk  Arm B pattern (default cycle):\n"
       "               cycle  = dim<->off each frame (max data toggling)\n"
       "               aa55   = 0xAAA<->0x555 each frame (flip every bit; framing/SI stress)\n"
       "               steady = same DIM frame re-latched at max rate (best glitch VISIBILITY;\n"
       "                        isolates latch-triggered corruption)\n"
+      "               walk   = off/20%%/50%% pattern marching across channels ~4x/sec\n"
+      "                        (realistic mixed levels; a corrupted channel stands out)\n"
+      "  -o CHAN    force channel CHAN (0..47) OFF as a per-test film fingerprint\n"
+      "               (use a different channel each run to tell videos apart)\n"
       "  -m N       SPI mode 0..3 (default 0)\n"
       "  -i USEC    Arm B inter-latch delay in microseconds (default 0 = max rate).\n"
       "               Throttle until the uniform latch-disturbance shimmer clears, then\n"
@@ -260,7 +292,7 @@ int main(int argc, char **argv) {
     long  delay_us = 0;
 
     int c;
-    while ((c = getopt(argc, argv, "a:g:s:p:m:i:T:H:h")) != -1) {
+    while ((c = getopt(argc, argv, "a:g:s:p:m:i:o:T:H:h")) != -1) {
         switch (c) {
         case 'a': arm = optarg[0]; break;
         case 'g': gray = strtol(optarg, NULL, 0); break;
@@ -268,10 +300,12 @@ int main(int argc, char **argv) {
         case 'p':
             pattern = strcmp(optarg, "aa55") == 0   ? PAT_AA55
                     : strcmp(optarg, "steady") == 0 ? PAT_STEADY
+                    : strcmp(optarg, "walk") == 0   ? PAT_WALK
                     : PAT_CYCLE;
             break;
         case 'm': mode = (uint8_t)strtoul(optarg, NULL, 0); break;
         case 'i': delay_us = strtol(optarg, NULL, 0); break;
+        case 'o': g_off_channel = (int)strtol(optarg, NULL, 0); break;
         case 'T': total_secs = strtol(optarg, NULL, 0); break;
         case 'H': hb = (int)strtol(optarg, NULL, 0); break;
         case 'h': default: usage(argv[0]); return (c == 'h') ? 0 : 2;
@@ -280,6 +314,10 @@ int main(int argc, char **argv) {
     if (arm != 'a' && arm != 'b') { usage(argv[0]); return 2; }
     if (gray < 0) gray = 0;
     if (gray > GS_MAX) gray = GS_MAX;
+    if (g_off_channel >= CHANNELS) g_off_channel = -1;
+    if (g_off_channel >= 0)
+        fprintf(stderr, "[marker] channel %d forced OFF as this test's film fingerprint\n",
+                g_off_channel);
 
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
