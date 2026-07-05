@@ -177,9 +177,19 @@ VCC, then run the dim-display static-hold vs hammer stress test to decide whethe
 P2 is spontaneous (VCC/ground) or triggered (transfer/latch).
 
 *** Open decision — refresh strategy
-Idea floated: stop refreshing every 500 ms and only *update* on change (~once a
-minute). *Only safe if P2 is triggered by sending/latching* — because the current
-500 ms refresh is also *self-healing* spontaneous glitches; if P2 is
-spontaneous-while-holding, cutting the refresh rate makes each glitch persist up to
-a minute instead of half a second. Decide after the stress test; tracked in
+Idea floated: stop refreshing every 500 ms and only *update* on change. Two
+constraints, both of which the "~once a minute" framing gets wrong:
+1. *Self-heal.* *Only safe if P2 is triggered by sending/latching* — because the
+   current 500 ms refresh is also *self-healing* spontaneous glitches; if P2 is
+   spontaneous-while-holding, cutting the refresh rate makes each glitch persist up
+   to a minute instead of half a second.
+2. *Brightness ramps.* The 500 ms cadence is *not* a pure refresh: it also drives
+   *smooth ambient-brightness transitions*. When the light level changes the clock
+   eases the grayscale over many small steps (see the =brightness-moving-average=
+   smoothing and the float-grayscale fix), and that needs frequent writes to look
+   smooth. A brightness step is a real *Update* (=CONTEXT.md= sense), not a refresh.
+So "update only on a time change (~once/min)" is wrong: the rule must be *update
+frequently whenever the time OR the brightness is changing; idle only when both are
+stable*, paired with a BLANK-gated clean latch so those updates are invisible.
+Decide after the stress test; tracked in
 [[file:docs/diagnostic-plan.org][docs/diagnostic-plan.org]].

@@ -72,8 +72,14 @@ Decide from Phase 1/2 results:
 - [ ] Record as an ADR (default-blank power-up).
 
 ** Deferred decision — refresh strategy
-Idea: stop refreshing every 500 ms; only *update* on change (~once/min).
+Idea: stop refreshing every 500 ms; only *update* on change.
 - [ ] Decide *after* Phase 2. Safe *only* if P2 is triggered (Arm B) — otherwise the
   500 ms refresh is self-healing spontaneous glitches and cutting it would make each
-  glitch persist up to a minute. If adopted, pair with a BLANK-gated clean latch so
-  the once-a-minute update is invisible. Record as an ADR.
+  glitch persist up to a minute.
+- [ ] *Not "once a minute".* The 500 ms cadence also drives *smooth brightness
+  ramps*: when ambient light changes the clock eases grayscale over many steps
+  (=brightness-moving-average= + float grayscale), which needs frequent writes. A
+  brightness step is a real *Update*, not a refresh. Rule must be: *update while the
+  time OR the brightness is changing; idle only when both are stable.*
+- [ ] If adopted, pair with a BLANK-gated clean latch so those updates are invisible.
+  Record as an ADR.
