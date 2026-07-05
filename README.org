@@ -156,7 +156,10 @@ for a while.
 2. *12-bit SPI framing hiccup* on the BBB McSPI (non-byte-aligned word size is a
    fragile corner). Would be board-independent (evenly spread).
 
-*** Reference material (saved under =ti-forum/=)
+*** Reference material
+Schematic and datasheet extract are committed under =docs/reference/=
+(=leds_tlc5974sch.png=, =tlc5947-datasheet-p1.png=). The forum threads below are
+cited by URL; a full local capture of the TI thread is kept out of git.
 - TI E2E "Any way to avoid TLC5947 flicker?": the chip is designed for *static*
   display; every XLAT latch briefly disturbs all outputs (up to ~10 ms). Fixes:
   tie XLAT+BLANK, or BLANK-high during latch; watch for crosstalk onto BLANK.

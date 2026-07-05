@@ -7,3 +7,6 @@ tsl2561-daemon/tsl2561-daemon.o
 /client-server-test/client
 /client-server-test/server
 
+# Saved reference web pages (bulky); useful extracts live in docs/reference/
+/ti-forum/
+
