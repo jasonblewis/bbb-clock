@@ -170,28 +170,16 @@ cited by URL; a full local capture of the TI thread is kept out of git.
   from P2); SOUT changes on the falling SCLK edge to avoid cascade shift errors.
 
 *** Planned diagnostics
-- *Step 0*: capture live-device ground truth (see the WARNING above).
-- *Cheap first fix to try*: solder ~100 µF onto VCC (=C1=/=C3=) on both boards
-  and watch whether the glitch rate collapses.
-- *Two-arm stress test* (run over SSH, display driven *dim* so an upward glitch is
-  visible, filmed for later review, logging board temperature):
-  - Arm A — *static hold*: set all channels ~10 %, send *once*, then stop sending.
-    A glitch here (zero bus activity) = corruption on the hold side.
-  - Arm B — *hammer*: rapidly dim-cycle all channels 100→0→100 % at max update
-    rate (also try alternating 0xAAA/0x555 patterns). A glitch here but not in
-    Arm A = triggered by sending/latching.
-  - Optional SPI-clock sweep (100 kHz ↔ 4 MHz) on Arm B: rate rising with clock
-    speed implicates framing/signal integrity.
-- *Clustering check*: do glitches favour Chip A (right three digits) or Chip B
-  (leftmost digit + colon)? Chip A bias supports the VCC/ground hypothesis.
-- Drive the grayscale values *directly* in the test harness, bypassing the
-  ambient-sensor / brightness path, so a software brightness bug can't be
-  mistaken for the hardware glitch.
+The actionable, ordered checklist lives in [[file:docs/diagnostic-plan.org][docs/diagnostic-plan.org]]
+(Phase 0 ground-truth capture → 100 µF VCC test → two-arm stress test → conclude &
+fix → P1 power-up fix). In brief: capture live-device ground truth, try ~100 µF on
+VCC, then run the dim-display static-hold vs hammer stress test to decide whether
+P2 is spontaneous (VCC/ground) or triggered (transfer/latch).
 
 *** Open decision — refresh strategy
 Idea floated: stop refreshing every 500 ms and only *update* on change (~once a
-minute). *Only safe if P2 is triggered by sending/latching* (Arm B) — because the
-current 500 ms refresh is also *self-healing* spontaneous glitches. If P2 turns
-out to be spontaneous-while-holding (Arm A), cutting the refresh rate would make
-each glitch persist up to a minute instead of half a second — a regression. Decide
-after the stress test.
+minute). *Only safe if P2 is triggered by sending/latching* — because the current
+500 ms refresh is also *self-healing* spontaneous glitches; if P2 is
+spontaneous-while-holding, cutting the refresh rate makes each glitch persist up to
+a minute instead of half a second. Decide after the stress test; tracked in
+[[file:docs/diagnostic-plan.org][docs/diagnostic-plan.org]].
