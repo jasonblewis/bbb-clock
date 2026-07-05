@@ -11,3 +11,184 @@ for d in {0..3} ; do for i in {0..9} ; do  ./clock -d $d -v $i -g 1000; sleep 1;
 #+END_SRC
 
 *** Walk the segments, displaying 1 segment at a time
+
+* Hardware
+Domain vocabulary used below is defined in =CONTEXT.md=.
+
+** Overview
+- *Controller*: BeagleBone Black (BBB), running the =clock= program under Linux.
+- *Drivers*: two [[https://www.adafruit.com/product/1429][Adafruit TLC5947]] 24-channel constant-current PWM LED
+  driver breakouts, daisy-chained. 24 + 24 = 48 channels.
+- *Display*: four 7-segment digits (HH:MM) + a colon. Per-digit decimal-point
+  LEDs exist on the wiring but are unused by the clock.
+- *Power*: a custom supply board takes ~15 V in and produces 5 V (for the BBB)
+  and 12 V (VLED, the LED rail).
+
+** Data path (SPI / daisy chain)
+- The BBB shifts grayscale data out over SPI (=/dev/spidev1.0= in the source),
+  into chip 1's SIN; chip 1's SOUT feeds chip 2's SIN (cascade).
+- The BBB's chip-select line is used as the *LAT* (XLAT) latch.
+- Word size is *12 bits* (=bits_per_word = 12=): 48 channels x 12 bits = 576
+  bits = 2 x 288, one 288-bit grayscale frame per chip. The framing depends
+  entirely on the 12-bit word setting taking effect.
+- SPI clock ~1 MHz (datasheet allows 15 MHz cascaded, so lots of margin).
+- SPI mode is left at the spidev default (mode 0), which is correct for the
+  TLC5947 (data sampled on the rising SCLK edge, SOUT changes on the falling
+  edge to avoid cascade shift errors). The code does *not* explicitly set the
+  mode — =SPI_IOC_WR_MODE= is commented out.
+- The =clock= program rewrites the whole 48-channel buffer and re-latches every
+  ~500 ms (a *refresh*, even when nothing changed).
+
+*** WARNING: source may not match the running device
+The pin comments in =clock.c= reference SPI0 header pins (P9_17/18/21/22) but the
+code opens =spidev1.0=. Pin/wiring experiments were done directly on the BBB, so
+before trusting any of this, capture ground truth from the live device:
+- =cat /sys/kernel/debug/gpio= (which GPIO actually drives /OE)
+- the running =clock= binary vs this source (build date / =strings=)
+- the live SPI mode / speed / bits-per-word.
+
+** Channel -> digit map
+Derived from the =segments[]= / =colon[]= / =decimalpoint[]= tables in =clock.c=.
+Each chip owns 24 consecutive buffer indices; segment order per digit is A,B,C,D,E,F,G.
+
+| Chip   | buf indices | Drives                              | Physical position           |
+|--------+-------------+-------------------------------------+-----------------------------|
+| Chip A | 0–23        | digit 0, digit 1, digit 2           | right three digits          |
+| Chip B | 24–47       | digit 3 + colon                     | leftmost digit + the colon  |
+
+- digit 0 = ={13,12,10,9,8,14,15}=  (minutes units)
+- digit 1 = ={17,16,6,5,4,18,19}=   (minutes tens)
+- digit 2 = ={21,20,2,1,0,22,23}=   (hours units)
+- digit 3 = ={45,44,26,25,24,46,47}= (hours tens)
+- colon   = ={39,40}=, ={43,41}=
+- decimal points (unused) = ={11,7,3,27}=
+
+Consequence: *Chip A drives three digits, Chip B usually drives only the colon
+plus (sometimes) the leading "1"*. Chip A therefore sinks far more LED current,
+runs hotter, and pushes much more return current through its GND pin.
+
+** Power architecture (per Adafruit board)
+Constant-current *sink* drive: LED anodes -> VLED (12 V); LED cathodes -> the
+chip's OUTn pins; the chip turns an LED on by sinking current to GND.
+
+Each board regulates its *own* logic supply:
+- =VLED= (12 V rail) feeds both the LED anodes *and* the on-board *LM2931ADT-5.0*
+  LDO input.
+- The *LM2931* (a ~100 mA LDO) drops VLED to *5 V = the chip's VCC (logic)*.
+- Input caps: =C4 ≈ 1000 µF= (schematic) + =C2 = 1 µF=. *We fitted 100 µF for C4*,
+  not 1000 µF. C4 is LED-rail bulk; with ~7 V of LDO headroom it does not affect
+  VCC.
+- Output caps (VCC): =C1 = 10 µF= + =C3 = 10 µF= ≈ *20 µF total*.
+- =R1 = 3.3 kΩ= is IREF (sets the per-channel constant-current limit).
+- =R3 = 10 kΩ= is a pull-down on *BLANK* -> board default is BLANK low =
+  *outputs enabled*.
+- Because each board has its own LM2931, *the two chips have independent VCC
+  rails*. VLED is passed board-to-board (V+ input and output pins tied together);
+  board 2 draws its LED current through board 1's V+ pins and shared ground.
+
+Supply-board notes:
+- The ~15 V feed from the connector to the supply board is thin: ~0.28 mm dia
+  (~AWG 29), ~300 mm long. Loop resistance ~0.16 Ω; at ~0.5–0.7 A the DC drop is
+  only ~0.1 V (negligible) but the wire runs warm — worth upgrading for
+  reliability, *not* a suspected glitch cause.
+
+** Blanking circuit (/OE control)
+A BC548 NPN transistor drives the daisy-chained /OE (BLANK) line
+(hand sketch dated 2015; pin has since changed):
+- Base <- 10 kΩ <- BBB *gpio20* (header *P9_41* = GPIO0_20).
+- Collector -> /OE, and -> 1 kΩ pull-up to +5 V.
+- Emitter -> GND.
+
+Logic: gpio20 *high* -> transistor on -> /OE *low* -> *enabled*;
+gpio20 *low* -> transistor off -> /OE *high* (~4.5 V via the 1 k/10 k divider)
+-> *blanked*.
+
+- =displayon.sh= exports gpio20, sets it output, drives it *1* (enable).
+- =displayoff.sh= drives gpio20 *0* (blank).
+- =clock.c= never touches gpio20 — it is set once at boot and left enabled.
+- Caution: *P9_41 is a "double" pin* also tied to GPIO3_20 (gpio116); keep that
+  pin exclusive to blanking.
+
+* Findings — LED brightness glitches (in progress)
+Two distinct faults share one symptom family: garbage grayscale reaching the LEDs.
+
+** P1 — power-up garbage (understood)
+Random bright LEDs from power-on until the software writes valid data.
+- *Cause*: at boot the grayscale latch holds undefined values, and nothing keeps
+  the chips blanked. The board's =R3= pulls BLANK low (enabled) by default, and
+  the BC548's base floats while the BBB boots (gpio20 is a hi-Z input, and P9_41
+  likely boots with an internal pull-up) — so /OE leaks low, outputs are enabled,
+  and the garbage latch is displayed until =displayon.sh= / =clock= run.
+- *Fix (planned)*: make "blanked" the fail-safe hardware default — a pull-down on
+  the BC548 base (so no active drive = blanked) plus a device-tree pinmux holding
+  gpio20 low/pulled-down through boot. Then blanking never depends on software
+  winning a race.
+
+** P2 — runtime random-bright glitch (root cause open)
+Rare, random, position-varying LEDs momentarily jump bright, *self-healing on the
+next ~500 ms refresh*, recurring every few seconds when it is happening at all.
+Frequency varies from "not for months" to frequent; a power cycle seems to help
+for a while.
+
+*** Established
+- It is a *physical-layer* fault, *not* a =clock.c= logic bug: every frame
+  rewrites all channels with bounded, self-consistent values (digit segments are
+  hard-masked to ≤ 0xFFF) and the glitch self-heals on the next identical frame.
+  So the corruption is between the buffer and the grayscale latch, or in the
+  latch while it holds — not in the data the software computes. *Auditing display
+  logic cannot fix P2.*
+- A supply sag cannot be the direct cause: a constant-current sink can only make
+  an LED *dimmer*, never brighter. A bright channel means the grayscale *data*
+  was corrupted — a digital fault (VCC/ground/SPI), not an LED-power fault.
+- Well-covered already: Adafruit modules with on-board decoupling, added 100 µF
+  bulk caps, a 50 mm soldered ribbon between boards, 1 MHz SPI (15 MHz-capable).
+  So inter-board signal integrity and LED-rail sag are low on the list.
+
+*** Leading hypotheses
+1. *VCC / ground integrity on the busy chip*. Each board's VCC comes from its own
+   LM2931 with only ~20 µF of output cap (the LM2931 is notoriously sensitive to
+   its output capacitor; the classic stability figure is ~100 µF — confirm from
+   the datasheet). A marginally-stable VCC, or ground bounce from the sink current
+   (Chip A sinks ~3x more), can flip grayscale bits -> a bright channel. This
+   fits every observation: intermittent, random, worse when hot, "power cycle
+   helps for a while" (LDO stability / junction temp drift).
+   *Prediction*: glitches should favour *Chip A (the right three digits)*.
+2. *12-bit SPI framing hiccup* on the BBB McSPI (non-byte-aligned word size is a
+   fragile corner). Would be board-independent (evenly spread).
+
+*** Reference material (saved under =ti-forum/=)
+- TI E2E "Any way to avoid TLC5947 flicker?": the chip is designed for *static*
+  display; every XLAT latch briefly disturbs all outputs (up to ~10 ms). Fixes:
+  tie XLAT+BLANK, or BLANK-high during latch; watch for crosstalk onto BLANK.
+- Adafruit "LONG TLC5947 daisy-chain flickering RESOLVED": clock/latch skewed
+  from data in a cascade -> data corruption; keep cable runs short.
+- Datasheet: 4 MHz internal grayscale oscillator (no external GSCLK needed);
+  *Thermal Shutdown* turns outputs *off* (dark, not bright — a different event
+  from P2); SOUT changes on the falling SCLK edge to avoid cascade shift errors.
+
+*** Planned diagnostics
+- *Step 0*: capture live-device ground truth (see the WARNING above).
+- *Cheap first fix to try*: solder ~100 µF onto VCC (=C1=/=C3=) on both boards
+  and watch whether the glitch rate collapses.
+- *Two-arm stress test* (run over SSH, display driven *dim* so an upward glitch is
+  visible, filmed for later review, logging board temperature):
+  - Arm A — *static hold*: set all channels ~10 %, send *once*, then stop sending.
+    A glitch here (zero bus activity) = corruption on the hold side.
+  - Arm B — *hammer*: rapidly dim-cycle all channels 100→0→100 % at max update
+    rate (also try alternating 0xAAA/0x555 patterns). A glitch here but not in
+    Arm A = triggered by sending/latching.
+  - Optional SPI-clock sweep (100 kHz ↔ 4 MHz) on Arm B: rate rising with clock
+    speed implicates framing/signal integrity.
+- *Clustering check*: do glitches favour Chip A (right three digits) or Chip B
+  (leftmost digit + colon)? Chip A bias supports the VCC/ground hypothesis.
+- Drive the grayscale values *directly* in the test harness, bypassing the
+  ambient-sensor / brightness path, so a software brightness bug can't be
+  mistaken for the hardware glitch.
+
+*** Open decision — refresh strategy
+Idea floated: stop refreshing every 500 ms and only *update* on change (~once a
+minute). *Only safe if P2 is triggered by sending/latching* (Arm B) — because the
+current 500 ms refresh is also *self-healing* spontaneous glitches. If P2 turns
+out to be spontaneous-while-holding (Arm A), cutting the refresh rate would make
+each glitch persist up to a minute instead of half a second — a regression. Decide
+after the stress test.
