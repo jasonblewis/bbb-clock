@@ -181,13 +181,16 @@ static const char *pat_name(int p) {
     return p == PAT_AA55 ? "aa55" : p == PAT_STEADY ? "steady" : "cycle";
 }
 
-static int arm_b(uint16_t gray, int pattern, long total_secs, int hb) {
-    fprintf(stderr, "[arm B] hammer: rewrite+relatch as fast as possible, pattern=%s\n",
-            pat_name(pattern));
+static int arm_b(uint16_t gray, int pattern, long total_secs, int hb, long delay_us) {
+    fprintf(stderr, "[arm B] hammer: pattern=%s, inter-latch delay=%ld us (%s)\n",
+            pat_name(pattern), delay_us,
+            delay_us <= 0 ? "max rate" : "throttled");
     fprintf(stderr, "[arm B] a glitch here but not in Arm A = triggered by sending/latching.\n");
     if (pattern == PAT_STEADY)
-        fprintf(stderr, "[arm B] steady: same DIM frame re-latched at max rate; image looks calm,\n"
-                        "        so any bright FLASH = a latch-triggered glitch (rate scales with hammering).\n");
+        fprintf(stderr, "[arm B] steady: same DIM frame re-latched; image should look calm,\n"
+                        "        so a random bright FLASH = a latch-triggered P2 glitch.\n"
+                        "        NB: at very high rate a uniform whole-display shimmer is the\n"
+                        "        inherent per-latch disturbance (NOT P2) — throttle with -i until it clears.\n");
     fill_all(gray);   /* initial frame; PAT_STEADY keeps this unchanged */
     log_env("B-start");
 
@@ -215,6 +218,7 @@ static int arm_b(uint16_t gray, int pattern, long total_secs, int hb) {
             log_env("B-run");
         }
         if (total_secs > 0 && el >= total_secs) break;
+        if (delay_us > 0) usleep(delay_us);   /* throttle the latch rate */
     }
     double el = (double)(time(NULL) - start);
     fprintf(stderr, "[arm B] done: %lu frames in %.0fs (%.0f/s)\n",
@@ -234,6 +238,9 @@ static void usage(const char *me) {
       "               steady = same DIM frame re-latched at max rate (best glitch VISIBILITY;\n"
       "                        isolates latch-triggered corruption)\n"
       "  -m N       SPI mode 0..3 (default 0)\n"
+      "  -i USEC    Arm B inter-latch delay in microseconds (default 0 = max rate).\n"
+      "               Throttle until the uniform latch-disturbance shimmer clears, then\n"
+      "               hunt random bright glitches. e.g. 50000 = ~20 latch/s, 100000 = ~10/s.\n"
       "  -T SECS    stop after SECS (default: run until Ctrl-C)\n"
       "  -H SECS    heartbeat/env-log interval (default 30; 0=off)\n"
       "\n"
@@ -250,9 +257,10 @@ int main(int argc, char **argv) {
     uint8_t mode = 0;
     long  total_secs = 0;
     int   hb = 30;
+    long  delay_us = 0;
 
     int c;
-    while ((c = getopt(argc, argv, "a:g:s:p:m:T:H:h")) != -1) {
+    while ((c = getopt(argc, argv, "a:g:s:p:m:i:T:H:h")) != -1) {
         switch (c) {
         case 'a': arm = optarg[0]; break;
         case 'g': gray = strtol(optarg, NULL, 0); break;
@@ -263,6 +271,7 @@ int main(int argc, char **argv) {
                     : PAT_CYCLE;
             break;
         case 'm': mode = (uint8_t)strtoul(optarg, NULL, 0); break;
+        case 'i': delay_us = strtol(optarg, NULL, 0); break;
         case 'T': total_secs = strtol(optarg, NULL, 0); break;
         case 'H': hb = (int)strtol(optarg, NULL, 0); break;
         case 'h': default: usage(argv[0]); return (c == 'h') ? 0 : 2;
@@ -279,7 +288,7 @@ int main(int argc, char **argv) {
 
     int rc = (arm == 'a')
         ? arm_a((uint16_t)gray, total_secs, hb)
-        : arm_b((uint16_t)gray, pattern, total_secs, hb);
+        : arm_b((uint16_t)gray, pattern, total_secs, hb, delay_us);
 
     /* leave the last frame latched on exit (do not blank) so a held glitch
      * stays visible for inspection; the clock service will reclaim on restart. */
