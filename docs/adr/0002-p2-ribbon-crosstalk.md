@@ -54,6 +54,19 @@ culprit he isolated: running the **data/clock cable physically close to the latc
 cable** — *"the crosstalk between these two cables is very disruptive to correct
 operation."*
 
+Adafruit thread 58467/58367 ("LONG TLC5947 Daisy Chain Flickering RESOLVED", saved
+under `ti-forum/`) — **almost our exact rig**: a BeagleBone Black writing
+`/dev/spidev1.0` at 1 MHz+, **12 bits per TLC5947**, in a chain, with the same flicker.
+Key expert diagnosis (Adafruit staff, post 8): *"you may also have been experiencing
+**ringing on the latch lines**, which would be visible with an oscilloscope"* + tDO
+skew accumulating down the chain; post 7 describes *"data being skewed (out of phase)
+from the clock and xlat."* Suggested fixes: **termination — 2× Schottky diodes (e.g.
+1N5818) at the receiving end of the CLK/LAT lines** to clip overshoot/ringing (post 4),
+scope the lines, and split long chains. That 60-board chain was ultimately RESOLVED by
+adding **signal buffer ICs** (re-driving CLK/DATA/LAT) — overkill for our 2-chip chain,
+but the principle (clean up CLK/LAT integrity) is the same. This independently confirms
+the **latch line** as the weak point.
+
 ## Decision — root cause
 
 **P2 is signal-integrity crosstalk on the ribbon: the switching CLK (and DIN) edges
@@ -77,9 +90,15 @@ VCC/decoupling problem (independent evidence: 1000 µF caps did not help).
    between the existing signals. The single most important one is a **ground between
    CLK and LAT/OE**.
 2. **Series ~33–100 Ω on CLK** at the BBB end to damp the edges that do the coupling.
-3. **Shorten the run**; keep CLK/DIN physically away from LAT/OE.
-4. **Cheap test-first:** per post 9, just split CLK/DIN into a separate bundle routed
+3. **Terminate CLK and LAT** (thread 58467): a Schottky clamp (2× 1N5818/1N5819 to
+   +5 V / GND) at the *receiving* chip end, or series R above, to clip overshoot/ringing
+   on the latch line.
+4. **Shorten the run**; keep CLK/DIN physically away from LAT/OE.
+5. **Cheap test-first:** per post 9, just split CLK/DIN into a separate bundle routed
    away from LAT/OE and confirm the flicker drops before building the full harness.
+6. **Scope confirmation (optional):** probe the **LAT/CS line** during Arm B — expect
+   ringing / a spurious edge coinciding with the glitches (the Adafruit-diagnosed
+   "ringing on the latch lines"). This is the definitive physical confirmation.
 
 **Deprioritised:** the plan's "Phase 1 ~100 µF on VCC" as a P2 fix — independent
 evidence (1000 µF, above) says caps do not fix this. (VCC/ground hygiene is still
