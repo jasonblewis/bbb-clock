@@ -169,16 +169,19 @@ uint16_t brightness_map(float brightness) {
 
   //  return(round( ( (float) brightness * 34.9) + 1));
   //  y=9.692 * x - 1.266
-  uint16_t b;
+  // NOTE: b MUST be signed. The line fit goes negative for ambient below
+  // ~0.13, and lrint() returns a negative long there. A uint16_t b wrapped
+  // that to ~65535, tripping the `b >= 4015` clamp and returning MAX
+  // brightness in the dark (P1-adjacent regression: dark room -> full bright).
+  long b;
   b = lrint(( 9.692 * brightness) - 1.266) ;
   if ( b >= 4015 ) {
     return 4015;
   } else if (b <= 5) {
     return 5;
   } else {
-    return ( (b < 5) ? 5 : b);
+    return b;
   }
-  return 0;
 }
 
 
