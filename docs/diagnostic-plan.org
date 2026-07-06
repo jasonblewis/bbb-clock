@@ -84,8 +84,9 @@ Original decision matrix (all consistent with the above):
   the power-on latch garbage flashed for the whole boot. Fix: =clock= unblanks itself
   after its first frame (new =unblank_display()=), and the early =displayon= boot
   unblank is disabled (=S05= → =K05=). Warm-tested OK.
-- [ ] Verify: cold boot shows *no* LEDs until =clock= writes real data. ← PENDING
-  (needs a physical power-cycle; user's hands).
+- [X] Verify: cold boot shows *no* LEDs until =clock= writes real data. ← PASSED
+  2026-07-07 on a real power-cycle: blank through boot, no garbage flash, clock
+  came up at correct brightness.
 - [X] Record as an ADR (default-blank power-up). ← ADR 0001 amended; build/deploy +
   rollback in =docs/agents/device-build-deploy.md=.
 

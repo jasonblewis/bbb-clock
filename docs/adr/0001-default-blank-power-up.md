@@ -1,7 +1,8 @@
 # ADR 0001 — Make "blanked" the fail-safe power-up default (fix P1)
 
-- **Status:** Amended — implemented via a software boot-order fix (see *Update
-  2026-07-07*); cold-boot acceptance test still pending on device.
+- **Status:** Accepted — implemented via a software boot-order fix (see *Update
+  2026-07-07*); **cold-boot acceptance test passed on device 2026-07-07** (display
+  stayed blank through power-up, no garbage flash; clock came up normally).
 - **Date:** 2026-07-05 (amended 2026-07-07)
 - **Fault:** P1 / power-up garbage (see `CONTEXT.md`, `README.org` → *Findings*)
 - **Relates to:** `docs/diagnostic-plan.org` Phase 4,
@@ -40,8 +41,10 @@ This revises the ADR's original "**`clock.c` never touches gpio20**" stance — 
 decoupling of unblank from data-write *was* the defect. The hardware pull-down
 (Decision item 1 below) remains valid defense-in-depth for the pre-`clock` window
 but is no longer the load-bearing fix. Exact device changes, build command, and
-rollback are in `docs/agents/device-build-deploy.md`. Warm-tested OK; cold-boot
-power-cycle acceptance test still pending (user's hands).
+rollback are in `docs/agents/device-build-deploy.md`. Warm-tested OK, and the
+**cold-boot power-cycle acceptance test passed (2026-07-07)**: on a real
+power-cycle the display stayed blank through boot with no garbage flash, and the
+clock came up at correct brightness.
 
 ---
 

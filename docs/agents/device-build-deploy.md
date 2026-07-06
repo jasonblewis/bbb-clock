@@ -141,7 +141,7 @@ for rl in 2 3 4 5; do mv /etc/rc$rl.d/K05displayon /etc/rc$rl.d/S05displayon; do
 - **Warm-tested OK (2026-07-07):** with the display manually blanked
   (`displayoff.sh` → gpio20 `out lo`), starting the new binary drove gpio20
   `out hi` within ~1 s (i.e. only after the first frame). Daemon healthy.
-- **PENDING — cold-boot test (user's hands):** full power-cycle with display
-  connected; expect **no lit LEDs at any point** through boot until `clock` starts,
-  then normal operation. This is the real P1 acceptance test.
+- **PASSED — cold-boot test (2026-07-07):** on a real power-cycle the display
+  stayed blank through the whole boot (no garbage flash) until `clock` started,
+  then came up at correct brightness. P1 fixed and verified.
 </content>
