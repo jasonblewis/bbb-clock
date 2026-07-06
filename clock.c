@@ -153,6 +153,7 @@ int dynamic_brightness = 1;
 
 int set_digit(int digit, int val, uint16_t greyscale);
 int write_led_buffer(void);
+void unblank_display(void);
 
 void usage(void) {
   printf("Usage: clock [-w|-c channel -g greyscale ]\n");
@@ -238,6 +239,32 @@ int write_led_buffer(void) {
       perror("Error writing spi");
       return 1; }
   return 0;
+}
+
+/* Drive gpio20 high to unblank the display (BC548 -> /OE low -> outputs enabled).
+   Called ONCE, right after the first valid frame has been written, so the
+   power-on grayscale latch garbage is never made visible. See ADR 0001: with
+   the displayon init service disabled, nothing unblanks early, so the hardware
+   pull-down keeps the display dark from power-on until this runs. Failure here
+   fails safe (display stays blank). Mirrors displayon.sh's sysfs sequence. */
+void unblank_display(void) {
+  int fd, i;
+  ssize_t n;
+
+  /* export gpio20 (harmless EBUSY if already exported) */
+  fd = open("/sys/class/gpio/export", O_WRONLY);
+  if (fd >= 0) { n = write(fd, "20", 2); (void)n; close(fd); }
+
+  /* direction node can lag export briefly (udev) - retry a few times */
+  for (i = 0; i < 20; i++) {
+    fd = open("/sys/class/gpio/gpio20/direction", O_WRONLY);
+    if (fd >= 0) { n = write(fd, "out", 3); (void)n; close(fd); break; }
+    usleep(10000);
+  }
+
+  fd = open("/sys/class/gpio/gpio20/value", O_WRONLY);
+  if (fd >= 0) { n = write(fd, "1", 1); (void)n; close(fd); }
+  else perror("unblank_display: could not open gpio20/value");
 }
 
 int spi_init(void) {
@@ -487,12 +514,13 @@ int get_brightness(char *ipaddress) {
 }
 
 void clockfn() {
-  
+
   if (!gvalue_set) { gvaluef = 0; }
   debug_print("in clock function\n");
   time_t t = time(NULL);
   struct tm tm;
   int current_hour;
+  int first_frame = 1;
   while(1) {
     t = time(NULL);
     tm = *localtime(&t);
@@ -525,7 +553,13 @@ void clockfn() {
       buf[colon[0][0]] = 0;
     };
     write_led_buffer();
-    usleep(500000); 
+    /* Unblank only after the first valid frame is on the chips, so the
+       power-on latch garbage is never shown (fixes P1 boot-order race). */
+    if (first_frame) {
+      unblank_display();
+      first_frame = 0;
+    }
+    usleep(500000);
   }
 }
 

@@ -1,9 +1,51 @@
 # ADR 0001 — Make "blanked" the fail-safe power-up default (fix P1)
 
-- **Status:** Proposed (draft — hardware change not yet applied or verified on device)
-- **Date:** 2026-07-05
+- **Status:** Amended — implemented via a software boot-order fix (see *Update
+  2026-07-07*); cold-boot acceptance test still pending on device.
+- **Date:** 2026-07-05 (amended 2026-07-07)
 - **Fault:** P1 / power-up garbage (see `CONTEXT.md`, `README.org` → *Findings*)
-- **Relates to:** `docs/diagnostic-plan.org` Phase 4
+- **Relates to:** `docs/diagnostic-plan.org` Phase 4,
+  `docs/agents/device-build-deploy.md` (build/deploy/rollback record)
+
+## Update (2026-07-07) — actual root cause and implemented fix
+
+The hardware default turned out **not** to be the live problem: with the current
+board, the display is **already blank at power-on** (confirmed by the user). The
+residual symptom was different — the display comes up blank, then **flashes all
+segments full-bright *later* in boot**.
+
+Diagnosed on device as a **boot-order race**, not a hardware-default issue:
+
+- Blanking is driven entirely by the `displayon`/`displayoff` init service via
+  gpio20; **`clock.c` never touched gpio20**, so unblank and data-write were
+  fully decoupled.
+- `displayon` unblanked **early** (`/etc/rc2.d/S05displayon`, i.e. `S05`), but
+  `clock` — which writes the first valid frame — is not insserv-managed and only
+  starts at the **end of boot from `rc.local`** (which is also where the SPI
+  overlay is loaded, so `clock` *cannot* write to the chips any earlier). The
+  power-on grayscale-latch garbage was therefore displayed for the whole boot,
+  from `S05` until `rc.local`.
+
+**Implemented fix (supersedes the Decision below as the actual remedy):**
+
+1. **`clock` unblanks itself after its first frame.** New `unblank_display()` in
+   `clock.c` drives gpio20 high, called **once**, immediately after the first
+   `write_led_buffer()` in `clockfn()`. Unblank is now *causally after* valid
+   data, so no timing race remains. Failure fails safe (display stays blank).
+2. **The early `displayon` boot-unblank is disabled** (`S05` → `K05` stop-links
+   in runlevels 2–5). Nothing unblanks early; the hardware pull-down keeps the
+   display dark from power-on until `clock` writes + unblanks.
+
+This revises the ADR's original "**`clock.c` never touches gpio20**" stance — the
+decoupling of unblank from data-write *was* the defect. The hardware pull-down
+(Decision item 1 below) remains valid defense-in-depth for the pre-`clock` window
+but is no longer the load-bearing fix. Exact device changes, build command, and
+rollback are in `docs/agents/device-build-deploy.md`. Warm-tested OK; cold-boot
+power-cycle acceptance test still pending (user's hands).
+
+---
+
+_Original ADR (2026-07-05) follows._
 
 ## Context
 
