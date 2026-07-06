@@ -6,7 +6,7 @@
   * consider if our code does the blank -> update image -> blank approach.
   * reduce all the things on the bbb that would write to the sd card and possibly cause it to wear out over time 
 	* analyse how we do the brightness client/server in tsl2561-daemon. can we add or move to an mqtt framework so that we can report room brightness to home assistant?
- * rename master to main in git.
+  * rename master to main in git.
   * originally I made the dimming/brightening so slow its imperceptible, but its too slow. speed it up a little
   * modify how the display works, only send updates to the TLC5947 when the display changes brightness or time.
   
