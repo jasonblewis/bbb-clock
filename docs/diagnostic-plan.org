@@ -30,38 +30,49 @@ anything or changing code, SSH in and record:
   be 0). Add a debug print or read back via the =SPI_IOC_RD_*= ioctls.
 - [ ] Reconcile the =clock.c= pin comments (SPI0 / P9_17..22) with =spidev1.0=.
 
-** Phase 1 — cheap first fix (try before the big test)
-- [ ] Solder ~100 µF (correct type/ESR for the LM2931) onto VCC (=C1=/=C3=) on *both*
-  boards — closes the ~20 µF → ~100 µF stability gap.
-- [ ] Run the display dim for a good while and see whether the glitch rate collapses.
-- [ ] If it clearly fixes it → VCC stability confirmed; skip to Phase 3 write-up.
+** Phase 1 — cheap first fix (DEPRIORITISED — caps don't fix P2)
+Superseded by the Phase 2/3 result (see [[file:adr/0002-p2-ribbon-crosstalk.md][ADR 0002]]): P2 is ribbon
+crosstalk, not VCC. Adafruit forum p=646976 post 9 tried *1000 µF* and it did not
+help. Kept for the record; do the ribbon fix instead.
+- [ ] (optional, VCC hygiene only) ~100 µF onto VCC (=C1=/=C3=) — not expected to fix P2.
 
 ** Phase 2 — two-arm stress test (discriminates the cause)
 Build a small test harness / =clock= test mode (drives grayscale directly).
-- [ ] *Arm A — static hold*: all channels ~10 %, send *once*, then *stop sending*.
+- [X] *Arm A — static hold*: all channels ~10 %, send *once*, then *stop sending*.
   Watch 10–20 min (warm it / wiggle harness). Glitch here (zero bus activity) =
-  corruption on the *hold* side (spontaneous).
-- [ ] *Arm B — hammer*: rapidly dim-cycle all channels 100→0→100 % at max update
+  corruption on the *hold* side (spontaneous). → *No glitches* (not spontaneous).
+- [X] *Arm B — hammer*: rapidly dim-cycle all channels 100→0→100 % at max update
   rate; also try alternating =0xAAA=/=0x555= patterns. Glitch here but *not* in Arm A
-  = *triggered by sending/latching*.
-- [ ] *SPI-clock sweep* on Arm B: repeat at 100 kHz / 1 MHz / 4 MHz. Rate rising with
-  clock speed ⇒ framing / signal integrity.
-- [ ] *Clustering*: tally glitches Chip A (right three digits) vs Chip B (leftmost +
-  colon). Chip A bias ⇒ VCC/ground on the busy chip.
+  = *triggered by sending/latching*. → *Glitches appear* (triggered by sending/latching).
+- [X] *SPI-clock sweep* on Arm B: repeat at 100 kHz / 1 MHz / 4 MHz. Rate rising with
+  clock speed ⇒ framing / signal integrity. → U-curve (~45 / ~20 / near-constant), min at 1 MHz.
+- [X] *Clustering*: tally glitches Chip A (right three digits) vs Chip B (leftmost +
+  colon). Chip A bias ⇒ VCC/ground on the busy chip. → *Chip A bias confirmed* (photos).
 - [ ] Optional scope: VCC (LM2931 output) and BBB-vs-far-chip ground during Arm B —
   watch for VCC dips/ringing or ground bounce coinciding with glitches.
 
-** Phase 3 — conclude & fix P2
-Decide from Phase 1/2 results:
+** Phase 3 — conclude & fix P2  [VERIFIED — fix applied & confirmed, see docs/adr/0002]
+*Result:* P2 is *transfer/latch triggered* (Arm B, not Arm A) AND *rate tracks SPI
+clock* (U-curve, min at 1 MHz) ⇒ *framing / signal integrity*, specifically *ribbon
+crosstalk from CLK/DIN into the CS/LATCH line* → mistimed latch captures a partial
+frame. Fix: *interleave grounds in the ribbon* (esp. between CLK and LAT), series R on
+CLK, shorten the run — NOT the VCC cap, NOT lowering the clock. Recorded in
+[[file:adr/0002-p2-ribbon-crosstalk.md][ADR 0002]].
+*Fix verified (2026-07-07):* rewired the ribbon as *twisted-pair ground returns*
+(Cat5e, one GND per switching line, both ends) — grounds *alone*, no series-R/Schottky.
+Full 2-chip sweep (=p2stress -a b -p hole -g 100 -i 100000 -w 1000=) → *0 flicker at
+100 kHz / 1 MHz / 4 MHz* (was ~45 / ~20 / near-constant). P2 resolved.
+Original decision matrix (all consistent with the above):
 - [ ] *Arm A glitches (spontaneous)* → VCC/ground integrity. Fix: correct VCC output
   cap, star-ground, local decoupling. *Do not* reduce the refresh rate (it is
   self-healing these).
-- [ ] *Only Arm B glitches (triggered)* → transfer/latch. Fix: BLANK-gated clean
+- [X] *Only Arm B glitches (triggered)* → transfer/latch. Fix: BLANK-gated clean
   latch (blank around each XLAT via gpio20), and *update-on-change* becomes safe
-  (see deferred decision).
-- [ ] *Rate tracks SPI clock* → framing/signal integrity. Fix: lower SPI clock for
-  margin, verify mode 0, shorten/terminate signals.
-- [ ] Record the confirmed cause + fix as an ADR under =docs/adr/=.
+  (see deferred decision).  ← *confirmed branch*
+- [X] *Rate tracks SPI clock* → framing/signal integrity. Fix: lower SPI clock for
+  margin, verify mode 0, shorten/terminate signals.  ← *confirmed branch* (fixed via
+  ribbon signal integrity, not by lowering the clock)
+- [X] Record the confirmed cause + fix as an ADR under =docs/adr/=.
 
 ** Phase 4 — fix P1 (power-up garbage; can run in parallel)
 - [ ] Make "blanked" the fail-safe hardware default: pull-down on the BC548 base so
@@ -72,8 +83,14 @@ Decide from Phase 1/2 results:
 - [ ] Record as an ADR (default-blank power-up).
 
 ** Deferred decision — refresh strategy
-Idea: stop refreshing every 500 ms; only *update* on change (~once/min).
+Idea: stop refreshing every 500 ms; only *update* on change.
 - [ ] Decide *after* Phase 2. Safe *only* if P2 is triggered (Arm B) — otherwise the
   500 ms refresh is self-healing spontaneous glitches and cutting it would make each
-  glitch persist up to a minute. If adopted, pair with a BLANK-gated clean latch so
-  the once-a-minute update is invisible. Record as an ADR.
+  glitch persist up to a minute.
+- [ ] *Not "once a minute".* The 500 ms cadence also drives *smooth brightness
+  ramps*: when ambient light changes the clock eases grayscale over many steps
+  (=brightness-moving-average= + float grayscale), which needs frequent writes. A
+  brightness step is a real *Update*, not a refresh. Rule must be: *update while the
+  time OR the brightness is changing; idle only when both are stable.*
+- [ ] If adopted, pair with a BLANK-gated clean latch so those updates are invisible.
+  Record as an ADR.

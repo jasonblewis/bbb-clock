@@ -1,0 +1,172 @@
+# ADR 0002 — P2 root cause: ribbon crosstalk from CLK/DIN into the LATCH line
+
+- **Status:** Verified (root cause established by on-device stress testing + photos +
+  independent corroboration; **hardware fix applied and confirmed 2026-07-07** — see
+  *Verification* below)
+- **Date:** 2026-07-05 (verified 2026-07-07)
+- **Fault:** P2 / runtime random-bright glitch (see `CONTEXT.md`, `README.org` → *Findings*)
+- **Supersedes the open question in** `docs/diagnostic-plan.org` Phase 2/3
+
+## Context — what we found
+
+P2 is intermittent, self-healing, position-varying bright-channel corruption during
+normal running. Using the `p2stress` harness (drives grayscale directly, bypasses the
+ambient/brightness path) on the live device, at DIM levels:
+
+- **Arm A (static hold, zero bus activity), cold, 20 min: no glitches.** So it is NOT
+  spontaneous bit-rot while the latch holds.
+- **Arm B (hammering the latch while sending): glitches appear.** So P2 is **triggered
+  by sending/latching**, not by holding.
+- **SPI-clock sweep** (same 10 Hz latch rate, hole pattern, ~flickers/30 s):
+  - 100 kHz → ~45
+  - **1 MHz → ~20 (minimum)**
+  - 4 MHz → near-constant
+  A **U-curve with the minimum at 1 MHz** (the speed the clock already runs at). Being
+  SPI-clock-dependent proves the corruption is in the **serial data path**, not random
+  VCC bit-flips (those would be clock-speed-independent).
+- **Spatial signature:** glitches hit **bursts of consecutive channels** — most often
+  the bottom bars C,D,E of a digit, which map to 3 *consecutive* channel numbers
+  (e.g. digit 2 = channels 0,1,2). A corrupted *run* of adjacent channels = a burst
+  error in the shift stream.
+- **Chip A bias**, confirmed in photos (`ti-forum/IMG_596*.jpeg`): the right three
+  digits (Chip A) show bright garbage while the leftmost (Chip B) stays dim; the
+  garbage pattern differs frame to frame.
+- **Direction:** channels jump **brighter** — data bits flipped on.
+
+### The wiring
+
+Signals travel BBB↔board on a **6-wire ribbon**. Board header order (top→bottom):
+
+```
+LAT  /OE  CLK  DIN  GND  V+
+```
+
+The BBB's **SPI chip-select is used as the LATCH (XLAT)**, so SCLK, DIN, and the latch
+all share this one ribbon. In this pinout **CLK sits one wire from LAT, directly against
+/OE and DIN, and the only ground is stranded at the far end** — there is no ground shield
+between the switching clock and the latch line.
+
+### Independent corroboration
+
+Adafruit forum thread p=646976 (saved under `ti-forum/`), post 9: a builder with 9
+TLC5947s and the *same* "intermittent flashing and fluttering in random parts" tried
+**1000 µF caps per module**, a resistor swap, and heat sinks — **none fixed it**. The
+culprit he isolated: running the **data/clock cable physically close to the latch/OE
+cable** — *"the crosstalk between these two cables is very disruptive to correct
+operation."*
+
+Adafruit thread 58467/58367 ("LONG TLC5947 Daisy Chain Flickering RESOLVED", saved
+under `ti-forum/`) — **almost our exact rig**: a BeagleBone Black writing
+`/dev/spidev1.0` at 1 MHz+, **12 bits per TLC5947**, in a chain, with the same flicker.
+Key expert diagnosis (Adafruit staff, post 8): *"you may also have been experiencing
+**ringing on the latch lines**, which would be visible with an oscilloscope"* + tDO
+skew accumulating down the chain; post 7 describes *"data being skewed (out of phase)
+from the clock and xlat."* Suggested fixes: **termination — 2× Schottky diodes (e.g.
+1N5818) at the receiving end of the CLK/LAT lines** to clip overshoot/ringing (post 4),
+scope the lines, and split long chains. That 60-board chain was ultimately RESOLVED by
+adding **signal buffer ICs** (re-driving CLK/DATA/LAT) — overkill for our 2-chip chain,
+but the principle (clean up CLK/LAT integrity) is the same. This independently confirms
+the **latch line** as the weak point.
+
+## Decision — root cause
+
+**P2 is signal-integrity crosstalk on the ribbon: the switching CLK (and DIN) edges
+couple into the CS/LATCH line, causing a mistimed/spurious latch that captures a
+partially-shifted frame.** A latch that fires mid-shift latches whatever is in the
+grayscale shift register at that instant → a run of adjacent channels gets the wrong
+(brighter) values → bright garbage that self-heals on the next clean frame.
+
+This single mechanism explains every observation: triggered only by sending (Arm B),
+worse with faster/edgier clock (4 MHz), bursts of consecutive channels (partial shift
+captured), brighter (bits flipped on), and Chip A bias (cable routing / chain position).
+
+It is **not** a `clock.c` logic bug (self-heals; bounded data) and **not** primarily a
+VCC/decoupling problem (independent evidence: 1000 µF caps did not help).
+
+## Consequences / fix (hardware — highest value first)
+
+1. **Interleave grounds in the ribbon** so every switching signal (LAT, /OE, CLK, DIN)
+   is flanked by a ground wire tied to ground **at both ends** (BBB GND and the board
+   GND/plane). ~10–11 wires. The header pin order need not change; grounds are inserted
+   between the existing signals. The single most important one is a **ground between
+   CLK and LAT/OE**.
+
+   **Preferred variant — twisted pairs from Cat5/5e (equal effort, strictly better).**
+   Retrofitting the cable is the same labour whether you interleave flat grounds or
+   splice in twisted pairs, so use twisted pairs: you get the return-path/shielding
+   benefit of interleaved grounds **plus** inductive-coupling cancellation from the
+   twist. One Cat5e cable = 4 twisted pairs = 8 conductors, a perfect fit for the four
+   switching lines — give each its own twisted ground return:
+
+   | Pair | Signal | Return |
+   |---|---|---|
+   | 1 | CLK | GND |
+   | 2 | LAT (CS/XLAT) | GND |
+   | 3 | DIN | GND |
+   | 4 | /OE | GND |
+
+   - Tie all four returns to ground at **both ends** (BBB GND and board GND). At this
+     length and single supply domain there is no ground-loop concern; both-ends is what
+     gives the HF return path.
+   - Run **V+ separately** (its own wire/pair, doubled conductors if the LED rail pulls
+     much current — 24 AWG is good for ~1 A). Keep LED power **out** of the signal
+     bundle; it gains nothing from the twist and only injects noise.
+   - This is better than flat interleaved grounds: each aggressor's return is *wrapped
+     around* it, not merely beside it, so coupling between the (well-formed) CLK pair and
+     LAT pair stays low even if they run bundled together — you no longer have to fight
+     to physically separate CLK from LAT.
+   - **Gotchas:** don't split a pair (each signal stays with *its own* twisted partner
+     end-to-end); keep the untwisted pigtails at the connector ends as short as possible
+     (~10 mm) — the exposed tails are where crosstalk re-enters; solid-core Cat5 pokes
+     into headers and solders cleanly for a fixed install, stranded if it must flex.
+   - A signal-over-return pair looks like a ~50–75 Ω line, which **pairs naturally with
+     the series-R source termination in Fix #2** if any ringing survives.
+2. **Series ~33–100 Ω on CLK** at the BBB end to damp the edges that do the coupling.
+3. **Terminate CLK and LAT** (thread 58467): a Schottky clamp (2× 1N5818/1N5819 to
+   +5 V / GND) at the *receiving* chip end, or series R above, to clip overshoot/ringing
+   on the latch line.
+4. **Shorten the run**; keep CLK/DIN physically away from LAT/OE.
+5. **Cheap test-first:** per post 9, just split CLK/DIN into a separate bundle routed
+   away from LAT/OE and confirm the flicker drops before building the full harness.
+6. **Scope confirmation (optional):** probe the **LAT/CS line** during Arm B — expect
+   ringing / a spurious edge coinciding with the glitches (the Adafruit-diagnosed
+   "ringing on the latch lines"). This is the definitive physical confirmation.
+
+**Deprioritised:** the plan's "Phase 1 ~100 µF on VCC" as a P2 fix — independent
+evidence (1000 µF, above) says caps do not fix this. (VCC/ground hygiene is still
+generally good, but it is not the P2 root cause.)
+
+**Do NOT** cut the SPI clock "for margin" — 1 MHz is already the U-curve minimum;
+100 kHz was worse.
+
+## Verification (after the ribbon change)
+
+**Fix applied:** Fix #1 alone — the **twisted-pair variant**. Each of the four switching
+lines (CLK, LAT, DIN, /OE) got its own twisted ground return (Cat5e pairs), tied to
+ground at both ends, V+ run separately. **No series-R (Fix #2) or Schottky termination
+(Fix #3) was needed.**
+
+**Result — full 2-chip assembly, `p2stress -a b -p hole -g 100 -i 100000 -w 1000`,
+DIM, user watching (2026-07-07):**
+
+| SPI clock | Pre-fix flickers / 30 s | Post-fix (both chips, twisted grounds) |
+|---|---|---|
+| 100 kHz | ~45 | **0 — rock solid** |
+| 1 MHz | ~20 (U-curve min) | **0** |
+| 4 MHz | near-constant | **0** |
+
+The harshest case (4 MHz, near-constant pre-fix) collapsed to zero, as did every point on
+the sweep, across the entire display (both chips). P2 is resolved. Chip B was verified in
+isolation on 2026-07-06; Chip A was rewired identically and the full assembly re-passed
+here.
+
+**Note on the harness:** `p2stress` has no chip-select (`-a` is arm, not chip) and shifts
+all 48 channels regardless, so the `hole` uniform-dim field is a valid glitch-watch over
+the whole 2-chip display. Detection is visual (no electrical readback); the user watched
+and counted.
+
+## Related
+
+- `p2stress.c` — the harness (Arm A/B, hole/walk patterns, `-s`/`-i` sweeps).
+- Photos: `ti-forum/IMG_596*.jpeg`. Forum capture: `ti-forum/646976*.html`.
+- P1 power-up fix is separate: see `docs/adr/0001-default-blank-power-up.md`.

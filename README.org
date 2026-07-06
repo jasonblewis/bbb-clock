@@ -124,11 +124,30 @@ Random bright LEDs from power-on until the software writes valid data.
   gpio20 low/pulled-down through boot. Then blanking never depends on software
   winning a race.
 
-** P2 — runtime random-bright glitch (root cause open)
+** P2 — runtime random-bright glitch (FIXED & VERIFIED 2026-07-07 — see docs/adr/0002)
 Rare, random, position-varying LEDs momentarily jump bright, *self-healing on the
 next ~500 ms refresh*, recurring every few seconds when it is happening at all.
 Frequency varies from "not for months" to frequent; a power cycle seems to help
 for a while.
+
+*Conclusion (2026-07-05, [[file:docs/adr/0002-p2-ribbon-crosstalk.md][ADR 0002]]):* P2 is *ribbon crosstalk* — the switching
+CLK/DIN edges couple into the CS/LATCH line (they share one 6-wire ribbon, and the
+board pinout puts CLK one wire from LAT with no ground between), causing a mistimed
+latch that captures a *partially-shifted* frame → a burst of consecutive channels
+latches brighter garbage. Established on-device with the =p2stress= harness:
+triggered only by *sending* (Arm B, not the static hold Arm A); flicker rate is a
+*U-curve in SPI clock* (min at 1 MHz, near-constant at 4 MHz) ⇒ serial-data-path, not
+VCC; glitches are *bursts of consecutive channels* biased to *Chip A* (photos in
+=ti-forum/=). Corroborated by Adafruit forum p=646976 post 9 (same fault; *1000 µF
+caps did NOT fix it*; crosstalk between the data/clock and latch/OE cables was the
+culprit). *Fix is wiring* (interleave grounds, esp. between CLK and LAT; series R on
+CLK; shorten), *not* the VCC cap and *not* lowering the SPI clock.
+
+*Fixed & verified (2026-07-07):* rewired the ribbon with *twisted-pair ground returns*
+(Cat5e — one dedicated GND twisted with each of CLK/LAT/DIN//OE, grounded both ends;
+V+ run separately). *Grounds alone* — no series-R or Schottky termination needed. Both
+chips done; full 2-chip =p2stress -a b -p hole= sweep at DIM now reads *0 flicker at
+100 kHz / 1 MHz / 4 MHz* (pre-fix ~45 / ~20 / near-constant). P2 resolved.
 
 *** Established
 - It is a *physical-layer* fault, *not* a =clock.c= logic bug: every frame
@@ -177,9 +196,19 @@ VCC, then run the dim-display static-hold vs hammer stress test to decide whethe
 P2 is spontaneous (VCC/ground) or triggered (transfer/latch).
 
 *** Open decision — refresh strategy
-Idea floated: stop refreshing every 500 ms and only *update* on change (~once a
-minute). *Only safe if P2 is triggered by sending/latching* — because the current
-500 ms refresh is also *self-healing* spontaneous glitches; if P2 is
-spontaneous-while-holding, cutting the refresh rate makes each glitch persist up to
-a minute instead of half a second. Decide after the stress test; tracked in
+Idea floated: stop refreshing every 500 ms and only *update* on change. Two
+constraints, both of which the "~once a minute" framing gets wrong:
+1. *Self-heal.* *Only safe if P2 is triggered by sending/latching* — because the
+   current 500 ms refresh is also *self-healing* spontaneous glitches; if P2 is
+   spontaneous-while-holding, cutting the refresh rate makes each glitch persist up
+   to a minute instead of half a second.
+2. *Brightness ramps.* The 500 ms cadence is *not* a pure refresh: it also drives
+   *smooth ambient-brightness transitions*. When the light level changes the clock
+   eases the grayscale over many small steps (see the =brightness-moving-average=
+   smoothing and the float-grayscale fix), and that needs frequent writes to look
+   smooth. A brightness step is a real *Update* (=CONTEXT.md= sense), not a refresh.
+So "update only on a time change (~once/min)" is wrong: the rule must be *update
+frequently whenever the time OR the brightness is changing; idle only when both are
+stable*, paired with a BLANK-gated clean latch so those updates are invisible.
+Decide after the stress test; tracked in
 [[file:docs/diagnostic-plan.org][docs/diagnostic-plan.org]].

@@ -1,0 +1,65 @@
+/*
+ * BB-BLANK-00A0.dts — DRAFT overlay: hold the blanking gpio (P9_41 / gpio0_20)
+ * low with an internal pull-down at mux time, as defense-in-depth for the P1
+ * power-up-garbage fix. See docs/adr/0001-default-blank-power-up.md.
+ *
+ * ############################  DRAFT — DO NOT FLASH YET  ####################
+ * The pad control-register OFFSETS and pinconf VALUES below are derived, not
+ * yet verified on hardware. Confirm against the AM335x TRM (Control Module
+ * pinmux) and the BeagleBone Black SRM before compiling with dtc and loading.
+ * A wrong offset muxes an unintended pin.
+ *
+ * ALSO NOTE: to actually prevent P1, this overlay must be applied EARLY in boot
+ * (U-Boot / base DTB / auto-loaded via uEnv.txt), NOT from rc.local like
+ * BB-SPI0-01 is today — otherwise the pinmux lands after the garbage window.
+ * The load-bearing P1 fix is the HARDWARE base pull-down (see the ADR); this
+ * overlay is optional hardening.
+ * ###########################################################################
+ *
+ * Offset convention (matches BB-SPI0-01-00A0.dts): pinctrl-single,pins offset =
+ * (conf-register address - 0x44e10800). The SPI overlay's 0x150 == spi0_sclk
+ * (0x44e10950) confirms the base.
+ *
+ * Derived offsets (VERIFY):
+ *   P9_41A  gpio0_20  <- pad XDMA_EVENT_INTR1  conf @ 0x44e109b0  -> offset 0x1b0
+ *   P9_41B  gpio3_20  <- pad MCASP0_AHCLKR     conf @ 0x44e109a8  -> offset 0x1a8
+ *   (P9_41 is a BBB "double pin": both balls tie to the same header pin.)
+ *
+ * AM335x conf-register bitfield (low 7 bits):
+ *   [2:0] mux mode        (7 = gpio)
+ *   [3]   pull DISABLE    (0 = pull enabled, 1 = disabled)
+ *   [4]   pull TYPE       (0 = pull-DOWN, 1 = pull-up)
+ *   [5]   RX/input enable (1 = receiver on)
+ *   [6]   slew            (0 = fast)
+ * So:  mode7 + pull-enabled + pull-down + RX off = 0x07  (INPUT-off, PULLDOWN, GPIO)
+ *      mode7 + pull-disabled + RX on             = 0x2f  (passive input, no pull)
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "ti,beaglebone", "ti,beaglebone-black";
+    part-number = "BB-BLANK";
+    version = "00A0";
+
+    /* claim the pins so capemgr flags conflicts */
+    exclusive-use = "P9.41";
+
+    fragment@0 {
+        target = <&am33xx_pinmux>;
+        __overlay__ {
+            blank_pins: blank_pins {
+                pinctrl-single,pins = <
+                  /* gpio0_20 (the blanking control): gpio mode, internal pull-DOWN,
+                   * so the BC548 base is held low (blanked) when nothing drives it. */
+                  0x1b0 0x07   /* XDMA_EVENT_INTR1: MODE7 | PULLDOWN | pull-enabled */
+
+                  /* gpio3_20 (double-pin sibling on P9_41): passive input, no pull,
+                   * so it never drives the shared pin high. */
+                  0x1a8 0x2f   /* MCASP0_AHCLKR: MODE7 | RX | pull-disabled */
+                >;
+            };
+        };
+    };
+};
