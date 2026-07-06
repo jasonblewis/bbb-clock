@@ -38,36 +38,41 @@ help. Kept for the record; do the ribbon fix instead.
 
 ** Phase 2 — two-arm stress test (discriminates the cause)
 Build a small test harness / =clock= test mode (drives grayscale directly).
-- [ ] *Arm A — static hold*: all channels ~10 %, send *once*, then *stop sending*.
+- [X] *Arm A — static hold*: all channels ~10 %, send *once*, then *stop sending*.
   Watch 10–20 min (warm it / wiggle harness). Glitch here (zero bus activity) =
-  corruption on the *hold* side (spontaneous).
-- [ ] *Arm B — hammer*: rapidly dim-cycle all channels 100→0→100 % at max update
+  corruption on the *hold* side (spontaneous). → *No glitches* (not spontaneous).
+- [X] *Arm B — hammer*: rapidly dim-cycle all channels 100→0→100 % at max update
   rate; also try alternating =0xAAA=/=0x555= patterns. Glitch here but *not* in Arm A
-  = *triggered by sending/latching*.
-- [ ] *SPI-clock sweep* on Arm B: repeat at 100 kHz / 1 MHz / 4 MHz. Rate rising with
-  clock speed ⇒ framing / signal integrity.
-- [ ] *Clustering*: tally glitches Chip A (right three digits) vs Chip B (leftmost +
-  colon). Chip A bias ⇒ VCC/ground on the busy chip.
+  = *triggered by sending/latching*. → *Glitches appear* (triggered by sending/latching).
+- [X] *SPI-clock sweep* on Arm B: repeat at 100 kHz / 1 MHz / 4 MHz. Rate rising with
+  clock speed ⇒ framing / signal integrity. → U-curve (~45 / ~20 / near-constant), min at 1 MHz.
+- [X] *Clustering*: tally glitches Chip A (right three digits) vs Chip B (leftmost +
+  colon). Chip A bias ⇒ VCC/ground on the busy chip. → *Chip A bias confirmed* (photos).
 - [ ] Optional scope: VCC (LM2931 output) and BBB-vs-far-chip ground during Arm B —
   watch for VCC dips/ringing or ground bounce coinciding with glitches.
 
-** Phase 3 — conclude & fix P2  [CONCLUDED — see docs/adr/0002]
+** Phase 3 — conclude & fix P2  [VERIFIED — fix applied & confirmed, see docs/adr/0002]
 *Result:* P2 is *transfer/latch triggered* (Arm B, not Arm A) AND *rate tracks SPI
 clock* (U-curve, min at 1 MHz) ⇒ *framing / signal integrity*, specifically *ribbon
 crosstalk from CLK/DIN into the CS/LATCH line* → mistimed latch captures a partial
 frame. Fix: *interleave grounds in the ribbon* (esp. between CLK and LAT), series R on
 CLK, shorten the run — NOT the VCC cap, NOT lowering the clock. Recorded in
 [[file:adr/0002-p2-ribbon-crosstalk.md][ADR 0002]].
+*Fix verified (2026-07-07):* rewired the ribbon as *twisted-pair ground returns*
+(Cat5e, one GND per switching line, both ends) — grounds *alone*, no series-R/Schottky.
+Full 2-chip sweep (=p2stress -a b -p hole -g 100 -i 100000 -w 1000=) → *0 flicker at
+100 kHz / 1 MHz / 4 MHz* (was ~45 / ~20 / near-constant). P2 resolved.
 Original decision matrix (all consistent with the above):
 - [ ] *Arm A glitches (spontaneous)* → VCC/ground integrity. Fix: correct VCC output
   cap, star-ground, local decoupling. *Do not* reduce the refresh rate (it is
   self-healing these).
-- [ ] *Only Arm B glitches (triggered)* → transfer/latch. Fix: BLANK-gated clean
+- [X] *Only Arm B glitches (triggered)* → transfer/latch. Fix: BLANK-gated clean
   latch (blank around each XLAT via gpio20), and *update-on-change* becomes safe
-  (see deferred decision).
-- [ ] *Rate tracks SPI clock* → framing/signal integrity. Fix: lower SPI clock for
-  margin, verify mode 0, shorten/terminate signals.
-- [ ] Record the confirmed cause + fix as an ADR under =docs/adr/=.
+  (see deferred decision).  ← *confirmed branch*
+- [X] *Rate tracks SPI clock* → framing/signal integrity. Fix: lower SPI clock for
+  margin, verify mode 0, shorten/terminate signals.  ← *confirmed branch* (fixed via
+  ribbon signal integrity, not by lowering the clock)
+- [X] Record the confirmed cause + fix as an ADR under =docs/adr/=.
 
 ** Phase 4 — fix P1 (power-up garbage; can run in parallel)
 - [ ] Make "blanked" the fail-safe hardware default: pull-down on the BC548 base so

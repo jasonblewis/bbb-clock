@@ -124,7 +124,7 @@ Random bright LEDs from power-on until the software writes valid data.
   gpio20 low/pulled-down through boot. Then blanking never depends on software
   winning a race.
 
-** P2 — runtime random-bright glitch (ROOT CAUSE FOUND — see docs/adr/0002)
+** P2 — runtime random-bright glitch (FIXED & VERIFIED 2026-07-07 — see docs/adr/0002)
 Rare, random, position-varying LEDs momentarily jump bright, *self-healing on the
 next ~500 ms refresh*, recurring every few seconds when it is happening at all.
 Frequency varies from "not for months" to frequent; a power cycle seems to help
@@ -142,6 +142,12 @@ VCC; glitches are *bursts of consecutive channels* biased to *Chip A* (photos in
 caps did NOT fix it*; crosstalk between the data/clock and latch/OE cables was the
 culprit). *Fix is wiring* (interleave grounds, esp. between CLK and LAT; series R on
 CLK; shorten), *not* the VCC cap and *not* lowering the SPI clock.
+
+*Fixed & verified (2026-07-07):* rewired the ribbon with *twisted-pair ground returns*
+(Cat5e — one dedicated GND twisted with each of CLK/LAT/DIN//OE, grounded both ends;
+V+ run separately). *Grounds alone* — no series-R or Schottky termination needed. Both
+chips done; full 2-chip =p2stress -a b -p hole= sweep at DIM now reads *0 flicker at
+100 kHz / 1 MHz / 4 MHz* (pre-fix ~45 / ~20 / near-constant). P2 resolved.
 
 *** Established
 - It is a *physical-layer* fault, *not* a =clock.c= logic bug: every frame

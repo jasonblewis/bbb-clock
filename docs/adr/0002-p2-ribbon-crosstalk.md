@@ -1,8 +1,9 @@
 # ADR 0002 — P2 root cause: ribbon crosstalk from CLK/DIN into the LATCH line
 
-- **Status:** Accepted (root cause established by on-device stress testing + photos +
-  independent corroboration; hardware fix not yet applied)
-- **Date:** 2026-07-05
+- **Status:** Verified (root cause established by on-device stress testing + photos +
+  independent corroboration; **hardware fix applied and confirmed 2026-07-07** — see
+  *Verification* below)
+- **Date:** 2026-07-05 (verified 2026-07-07)
 - **Fault:** P2 / runtime random-bright glitch (see `CONTEXT.md`, `README.org` → *Findings*)
 - **Supersedes the open question in** `docs/diagnostic-plan.org` Phase 2/3
 
@@ -89,6 +90,37 @@ VCC/decoupling problem (independent evidence: 1000 µF caps did not help).
    GND/plane). ~10–11 wires. The header pin order need not change; grounds are inserted
    between the existing signals. The single most important one is a **ground between
    CLK and LAT/OE**.
+
+   **Preferred variant — twisted pairs from Cat5/5e (equal effort, strictly better).**
+   Retrofitting the cable is the same labour whether you interleave flat grounds or
+   splice in twisted pairs, so use twisted pairs: you get the return-path/shielding
+   benefit of interleaved grounds **plus** inductive-coupling cancellation from the
+   twist. One Cat5e cable = 4 twisted pairs = 8 conductors, a perfect fit for the four
+   switching lines — give each its own twisted ground return:
+
+   | Pair | Signal | Return |
+   |---|---|---|
+   | 1 | CLK | GND |
+   | 2 | LAT (CS/XLAT) | GND |
+   | 3 | DIN | GND |
+   | 4 | /OE | GND |
+
+   - Tie all four returns to ground at **both ends** (BBB GND and board GND). At this
+     length and single supply domain there is no ground-loop concern; both-ends is what
+     gives the HF return path.
+   - Run **V+ separately** (its own wire/pair, doubled conductors if the LED rail pulls
+     much current — 24 AWG is good for ~1 A). Keep LED power **out** of the signal
+     bundle; it gains nothing from the twist and only injects noise.
+   - This is better than flat interleaved grounds: each aggressor's return is *wrapped
+     around* it, not merely beside it, so coupling between the (well-formed) CLK pair and
+     LAT pair stays low even if they run bundled together — you no longer have to fight
+     to physically separate CLK from LAT.
+   - **Gotchas:** don't split a pair (each signal stays with *its own* twisted partner
+     end-to-end); keep the untwisted pigtails at the connector ends as short as possible
+     (~10 mm) — the exposed tails are where crosstalk re-enters; solid-core Cat5 pokes
+     into headers and solders cleanly for a fixed install, stranded if it must flex.
+   - A signal-over-return pair looks like a ~50–75 Ω line, which **pairs naturally with
+     the series-R source termination in Fix #2** if any ringing survives.
 2. **Series ~33–100 Ω on CLK** at the BBB end to damp the edges that do the coupling.
 3. **Terminate CLK and LAT** (thread 58467): a Schottky clamp (2× 1N5818/1N5819 to
    +5 V / GND) at the *receiving* chip end, or series R above, to clip overshoot/ringing
@@ -109,10 +141,29 @@ generally good, but it is not the P2 root cause.)
 
 ## Verification (after the ribbon change)
 
-Re-run `p2stress -a b -p hole -g 100 -s 4000000 -i 100000` (the harshest case, which
-was near-constant before) and confirm the flicker rate collapses. Then re-run at 1 MHz
-and confirm it is effectively gone under stress. Tick the Phase 2/3 boxes in
-`docs/diagnostic-plan.org`.
+**Fix applied:** Fix #1 alone — the **twisted-pair variant**. Each of the four switching
+lines (CLK, LAT, DIN, /OE) got its own twisted ground return (Cat5e pairs), tied to
+ground at both ends, V+ run separately. **No series-R (Fix #2) or Schottky termination
+(Fix #3) was needed.**
+
+**Result — full 2-chip assembly, `p2stress -a b -p hole -g 100 -i 100000 -w 1000`,
+DIM, user watching (2026-07-07):**
+
+| SPI clock | Pre-fix flickers / 30 s | Post-fix (both chips, twisted grounds) |
+|---|---|---|
+| 100 kHz | ~45 | **0 — rock solid** |
+| 1 MHz | ~20 (U-curve min) | **0** |
+| 4 MHz | near-constant | **0** |
+
+The harshest case (4 MHz, near-constant pre-fix) collapsed to zero, as did every point on
+the sweep, across the entire display (both chips). P2 is resolved. Chip B was verified in
+isolation on 2026-07-06; Chip A was rewired identically and the full assembly re-passed
+here.
+
+**Note on the harness:** `p2stress` has no chip-select (`-a` is arm, not chip) and shifts
+all 48 channels regardless, so the `hole` uniform-dim field is a valid glitch-watch over
+the whole 2-chip display. Detection is visual (no electrical readback); the user watched
+and counted.
 
 ## Related
 
