@@ -75,12 +75,20 @@ Original decision matrix (all consistent with the above):
 - [X] Record the confirmed cause + fix as an ADR under =docs/adr/=.
 
 ** Phase 4 — fix P1 (power-up garbage; can run in parallel)
-- [ ] Make "blanked" the fail-safe hardware default: pull-down on the BC548 base so
-  *no active drive = blanked*.
-- [ ] Device-tree pinmux to hold gpio20 low / pulled-down through boot (repo already
-  ships a DT overlay).
-- [ ] Verify: cold boot shows *no* LEDs until =clock= writes real data.
-- [ ] Record as an ADR (default-blank power-up).
+- [X] Make "blanked" the fail-safe hardware default: pull-down on the BC548 base so
+  *no active drive = blanked*. ← blank-at-power-on now confirmed working on device.
+- [-] Device-tree pinmux to hold gpio20 low / pulled-down through boot. ← *not needed*:
+  residual fault was a boot-order race, not the hardware default (see below).
+- [X] *Actual root cause (2026-07-07): boot-order race.* =displayon= unblanked early
+  (=S05=) but =clock= (first data write) only starts at end of boot from =rc.local=;
+  the power-on latch garbage flashed for the whole boot. Fix: =clock= unblanks itself
+  after its first frame (new =unblank_display()=), and the early =displayon= boot
+  unblank is disabled (=S05= → =K05=). Warm-tested OK.
+- [X] Verify: cold boot shows *no* LEDs until =clock= writes real data. ← PASSED
+  2026-07-07 on a real power-cycle: blank through boot, no garbage flash, clock
+  came up at correct brightness.
+- [X] Record as an ADR (default-blank power-up). ← ADR 0001 amended; build/deploy +
+  rollback in =docs/agents/device-build-deploy.md=.
 
 ** Deferred decision — refresh strategy
 Idea: stop refreshing every 500 ms; only *update* on change.
