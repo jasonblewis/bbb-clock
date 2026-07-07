@@ -28,6 +28,17 @@ One of a driver's 24 constant-current outputs, driving one segment or dot LED.
 The 12-bit (0–4095) PWM value commanded for a channel.
 _Avoid_: brightness (reserve "brightness" for the ambient-light-driven overall level)
 
+**Ambient lux**:
+The illuminance of the room as measured by the light sensor, in lux. The *input*
+that drives dimming.
+_Avoid_: "brightness" for this — that is the output, not the sensor reading.
+
+**Display brightness**:
+The overall level the whole display is currently lit at, driven by ambient lux —
+the *output* of the dimming loop. One level for the display, not per channel.
+_Avoid_: using it for a single channel's grayscale value, or for the raw sensor
+reading (that is ambient lux).
+
 **Grayscale latch**:
 The on-chip register holding the grayscale values the driver is actively
 displaying, held by the chip's internal oscillator until the next latch.
