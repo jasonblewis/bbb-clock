@@ -76,8 +76,21 @@ class TelemetryService:
         # versions, so accept extra args.)
         log.warning("MQTT disconnected; paho will reconnect")
 
-    def _publish_discovery(self):
+    def _advertised_entities(self):
+        """Entities to advertise via discovery.
+
+        cpu_temp only exists if the kernel exposes a thermal zone; the AM335x on
+        this board does not, so per the PRD we drop the entity entirely rather
+        than advertise a permanently-unavailable sensor in HA. Every other source
+        may be *transiently* absent (boot races), so it is always advertised.
+        """
         for entity in ENTITIES:
+            if entity.key == "cpu_temp" and sources.read_cpu_temp() is None:
+                continue
+            yield entity
+
+    def _publish_discovery(self):
+        for entity in self._advertised_entities():
             self._client.publish(
                 discovery_topic(self.cfg, entity),
                 json.dumps(discovery_payload(self.cfg, entity)),

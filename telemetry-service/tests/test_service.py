@@ -115,6 +115,26 @@ def test_gather_readings_maps_sources(monkeypatch):
     assert r["ssid"] == "bongalong"
 
 
+def test_discovery_skips_cpu_temp_when_no_thermal_zone(monkeypatch):
+    # AM335x exposes no thermal zone -> cpu_temp entity must not be advertised.
+    monkeypatch.setattr(service.sources, "read_cpu_temp", lambda: None)
+    svc, fake = make_service()
+    svc._on_connect(fake, None, None, 0)
+    topics = [m[0] for m in fake.published]
+    assert not any("cpu_temp" in t for t in topics)
+    # the other 7 sensors are still advertised
+    disc = [t for t in topics if t.startswith("homeassistant/")]
+    assert len(disc) == len(service.ENTITIES) - 1
+
+
+def test_discovery_includes_cpu_temp_when_thermal_zone_present(monkeypatch):
+    monkeypatch.setattr(service.sources, "read_cpu_temp", lambda: 48.2)
+    svc, fake = make_service()
+    svc._on_connect(fake, None, None, 0)
+    topics = [m[0] for m in fake.published]
+    assert any(t.endswith("bbb-clock/cpu_temp/config") for t in topics)
+
+
 def test_stop_sets_event():
     svc, _ = make_service()
     assert not svc._stop.is_set()
