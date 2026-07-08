@@ -1,0 +1,21 @@
+[Unit]
+Description=BBB Clock telemetry to Home Assistant over MQTT
+Documentation=https://github.com/jasonblewis/bbb-clock
+# Reads lux from tsl2561-daemon (127.0.0.1:5000) and display brightness from
+# /run/clock/brightness (written by clock.c). Neither is a hard dependency: the
+# service degrades gracefully and retries each cycle, so any start order works.
+# A broker outage never affects the clock display or its dimming (ADR 0003).
+Wants=network-online.target
+After=network-online.target tsl2561-daemon.service clock.service
+
+[Service]
+Type=simple
+# Deploy: python3 -m venv /usr/local/lib/bbb-clock/venv
+#         /usr/local/lib/bbb-clock/venv/bin/pip install /path/to/telemetry-service
+# (a venv sidesteps Debian 13's PEP-668 externally-managed-environment rule).
+ExecStart=/usr/local/lib/bbb-clock/venv/bin/bbb-clock-telemetry /etc/bbb-clock/telemetry.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

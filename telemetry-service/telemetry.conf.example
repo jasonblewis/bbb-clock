@@ -1,0 +1,25 @@
+# BBB Clock telemetry service — configuration.
+#
+# Install as /etc/bbb-clock/telemetry.conf on the device and
+#   chmod 600 /etc/bbb-clock/telemetry.conf
+# because it holds the MQTT password. DO NOT commit a filled-in copy.
+
+[mqtt]
+host = newmb.bongalong.st
+port = 1883
+username = bbb-clock
+# Create this user on the Mosquitto broker first; paste its password here.
+password = REPLACE_WITH_BROKER_PASSWORD
+# Optional (defaults shown):
+# base_topic = bbb-clock
+# discovery_prefix = homeassistant
+# node_id = bbb-clock
+
+[telemetry]
+# Optional (defaults shown):
+# interval_s = 5
+# tsl2561_host = 127.0.0.1
+# tsl2561_port = 5000
+# brightness_path = /run/clock/brightness
+# grayscale_max = 4095
+# wifi_interface =        ; empty = auto-detect the first wireless interface

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bbb-clock-telemetry"
+version = "0.1.0"
+description = "Publish BBB clock telemetry to Home Assistant over MQTT"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["paho-mqtt>=2.0"]
+
+[project.scripts]
+bbb-clock-telemetry = "telemetry_service.__main__:main"
+
+[tool.setuptools]
+packages = ["telemetry_service"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

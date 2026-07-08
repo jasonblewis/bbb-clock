@@ -525,6 +525,29 @@ int get_brightness(char *ipaddress) {
   return 0;
 }
 
+/* Expose the current display brightness (the 0-4095 grayscale level the display
+   is driven at) as a single value in /run/clock/brightness, for the telemetry
+   service to read. /run is tmpfs, so this never touches the SD card. Written
+   only when the value changes, via a temp file + rename so a reader never sees a
+   torn value. A failure here is silently ignored: it must never affect the
+   render loop. This establishes the convention "clock.c exposes internal state
+   as one-value-per-file under /run/clock/". See ADR 0003 / issue #8. */
+static void publish_brightness(int level) {
+  static int last = -1;
+  if (level == last) return;
+  int fd = open("/run/clock/brightness.tmp", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0) return;                 /* /run/clock absent (boot race) -> skip */
+  char b[16];
+  int len = snprintf(b, sizeof b, "%d\n", level);
+  if (write(fd, b, len) == len) {
+    close(fd);
+    if (rename("/run/clock/brightness.tmp", "/run/clock/brightness") == 0)
+      last = level;
+  } else {
+    close(fd);
+  }
+}
+
 void clockfn() {
 
   if (!gvalue_set) { gvaluef = 0; }
@@ -538,7 +561,8 @@ void clockfn() {
     tm = *localtime(&t);
     
     get_brightness ( tsl2561_address);
-    
+    publish_brightness((int) round(gvaluef));  /* expose to telemetry (ADR 0003) */
+
     // convert to 12 hour clock
     current_hour = ((tm.tm_hour + 11) % 12 + 1);
     
