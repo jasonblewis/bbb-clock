@@ -38,8 +38,34 @@
 #define connected_leds ((SEGMENTS * DIGITS) + DIGITS + EXTRA_LEDS)
 #define start_channel (channels - connected_leds) - 1
 #define default_brightness 1000
-//#define BRIGHTNESS_FACTOR 1.055484602
-#define BRIGHTNESS_FACTOR 1.040810774
+// Ambient brightness ramp (issues #10 / #19).
+//
+// Each render tick nudges the driven level gvaluef toward brightness_target by
+// a constant *ratio*: gvaluef *= FACTOR when brightening, /= FACTOR when
+// dimming. Constant-ratio stepping is what makes the ramp look smooth -- the
+// steps are perceptually uniform (Weber's law) rather than uniform in absolute
+// grayscale. A full-range change (~50 -> ~4015) takes ln(4015/50)/ln(FACTOR)
+// steps; the wall-clock time is that many *fast* ticks (see RAMP_FAST_US).
+//
+// Responsiveness is set by the tick rate, not just the factor: the eye only
+// sees one gvaluef per rendered frame, so a smooth-yet-fast ramp needs many
+// frames. The render loop therefore ticks fast (RAMP_FAST_US) *only while a
+// ramp is in progress* and idles at RAMP_IDLE_US when settled -- so a full
+// 50->4015 sweep is ~5 s, small changes proportionally quicker, and steady
+// state keeps the old ~2 Hz cadence (and its P1 boot / self-heal behaviour).
+//
+// The factor is exp(k): k is the per-step log-rate. At 66 ms/tick (15 Hz) a
+// ramp of ~76 steps is ~5 s. Tune by eye on-device: a bigger factor OR a
+// shorter RAMP_FAST_US makes it snappier; back either off if stepping shows.
+//   k=0.058 exp=1.0596  ~76 steps @66ms -> ~5 s full range (current)
+//   (old ramp was exp(0.04) at a fixed 500 ms tick -> ~55 s.)
+#define BRIGHTNESS_FACTOR_UP   1.0596  // exp(0.058) -- ~5 s full-range brighten
+#define BRIGHTNESS_FACTOR_DOWN 1.0596  // exp(0.058) -- ~5 s full-range dim
+#define RAMP_FAST_US  66000   // ~15 Hz: tick rate while gvaluef chases target
+#define RAMP_IDLE_US  500000  // ~2 Hz: settled cadence (unchanged self-heal)
+#define RAMP_POLL_MS  2       // near-non-blocking sensor poll (was 450 -> blocked
+                              // the fast tick); select still returns the instant
+                              // data is buffered, this only caps the empty wait
 
 
 static int sockfd = 0;
@@ -47,7 +73,17 @@ static char recvBuff[1024];
 static int current_ambient;
 static char *tsl2561_address = "127.0.0.1"; // ip address for tsl2561
                                             // brightness daemon
-#define moving_ave_period  10
+// Moving-average window over ambient samples, smoothing sensor noise before
+// the ramp. The daemon emits ~1 sample/s, so this is roughly the window in
+// SECONDS -- and, worse, one stale saturated sample pins the average above the
+// brightness_map clamp until it ages out, so ~N seconds pass before a target
+// drop is even noticed after a bright light is removed. At 10 that was a ~10 s
+// lag to *start* dimming. The constant-ratio ramp already smooths gvaluef, so a
+// long pre-filter is mostly redundant lag; 3 keeps single-sample noise
+// rejection while letting the target track within a couple of seconds. Real
+// room-light changes (unsaturated) respond faster still; the torch is the
+// worst case. Tune up for more smoothing, down (min 1 = none) for more speed.
+#define moving_ave_period  3
 static int brightness_buffer[moving_ave_period];
 static float current_ambient_average;
 static uint16_t brightness_samples = 0;
@@ -141,6 +177,8 @@ uint8_t mode = 0;
 int cvalue = -1; // channel to set
 //uint16_t gvalue = 0; // to this greyscale value
 float gvaluef = 0;
+uint16_t brightness_target = 0; // grayscale level the ramp is chasing (0-4015);
+                                // updated on each new sensor reading, see #10/#19
 int gvalue_set = 0; // flag to determine if we have set a gvalue or not
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
@@ -187,7 +225,13 @@ uint16_t brightness_map(float brightness) {
 
 void update_average_brightness(void) {
 
-  uint16_t sum = 0;
+  // sum must be wide enough for moving_ave_period broadband samples. broadband
+  // is small in normal light but reaches tens of thousands under bright light
+  // (e.g. a torch on the sensor); a uint16_t sum wrapped past 65535 there,
+  // producing a garbage average that swung ~200<->3500 sample-to-sample and
+  // made the ramp lurch on the way down. 32 bits holds 10 * 65535 with room to
+  // spare. (Latent for years: normal ambient never summed high enough.)
+  uint32_t sum = 0;
   for (uint16_t x = 0; x < brightness_samples ; x++) {
     sum = sum + brightness_buffer[x];
   }
@@ -451,7 +495,7 @@ int get_brightness(char *ipaddress) {
 
   debug_print("in get_brightness\n");
   int n = 0;
-  int broadband, ir, lux;
+  int broadband = 0, ir = 0, lux = 0;  /* init: never fed unparsed (see below) */
   if (socket_open == 0) { // open the socket if its not already open
     debug_print("socket not open, opening it\n");
     if (open_socket (tsl2561_address) != 0) {
@@ -465,40 +509,39 @@ int get_brightness(char *ipaddress) {
   }
   if ( socket_open !=0 ) { // now if its open, get the brightness
     debug_print("about to call recv_to\n");
-    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
+    // Non-blocking poll: the render loop steps the ramp every tick (up to
+    // ~15 Hz while ramping), so this must not stall on a 450 ms select wait.
+    // The daemon only emits ~1/s, so most polls return -2; we just keep the
+    // last target and let step_brightness_ramp() keep gliding toward it.
+    // sizeof-1, not 1024: recvBuff[n] below writes the NUL terminator, so recv
+    // must never fill the last byte (recv returning exactly the buffer size
+    // would put recvBuff[n] one past the end).
+    n = recv_to (sockfd,recvBuff,sizeof(recvBuff)-1,MSG_DONTWAIT,RAMP_POLL_MS);
     if (n > 0 ) {
       recvBuff[n] = 0; //null terminate the string
-      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
-      debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
-      current_ambient = broadband;
-      add_brightness_to_buffer(current_ambient);
-      update_average_brightness();
-      if (dynamic_brightness) {
-        uint16_t map = brightness_map(current_ambient_average);
-        float ngval;
-        if (map < gvaluef) {
-          // descending in brightness
-          ngval = gvaluef / BRIGHTNESS_FACTOR;
-          printf("descending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
-          gvaluef = max(map, ngval);
-          
-        } else if (map > gvaluef) {
-          // ascending brightness
-          if (gvaluef <= 0) { // if gvaluef is 0 it will never
-                              // increase so just change it to 1
-            gvaluef = 1;
-          }
-          ngval = gvaluef * BRIGHTNESS_FACTOR;
-          printf("ascending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
-          gvaluef = min(map,ngval);
-        } else {
-          printf("map = gvaluef: %d %.2f\n",map,gvaluef);
-        };
-      };
-      if (brightness_option) {
-            printf("broadband brightness: %d\n",current_ambient);
-      };
-      
+      // Only trust a fully-parsed success line. A sensor error / saturation
+      // line (RC != 0), or a partial/coalesced TCP read, matches fewer than 3
+      // fields -- feeding an *unparsed* broadband into the moving average would
+      // corrupt it (same failure class as the uint16_t overflow). Skip it and
+      // keep the last good target rather than lurching on garbage.
+      if (sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d",
+                 &broadband, &ir, &lux) == 3 && broadband >= 0) {
+        debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
+        current_ambient = broadband;
+        add_brightness_to_buffer(current_ambient);
+        update_average_brightness();
+        if (dynamic_brightness) {
+          // Only refresh the target here; the actual ramp toward it is stepped
+          // every render tick by step_brightness_ramp() (decoupled so the ramp
+          // stays smooth regardless of how often the sensor reports).
+          brightness_target = brightness_map(current_ambient_average);
+        }
+        if (brightness_option) {
+          printf("broadband brightness: %d\n",current_ambient);
+        }
+      } else {
+        debug_print("skipping unparseable sensor line: %.64s\n", recvBuff);
+      }
     } else {
       switch (n) {
       case 0:
@@ -539,6 +582,8 @@ static void publish_brightness(int level) {
   if (fd < 0) return;                 /* /run/clock absent (boot race) -> skip */
   char b[16];
   int len = snprintf(b, sizeof b, "%d\n", level);
+  if (len < 0) { close(fd); return; }               /* encoding error */
+  if (len >= (int) sizeof b) len = (int) sizeof b - 1; /* clamp on truncation */
   if (write(fd, b, len) == len) {
     close(fd);
     if (rename("/run/clock/brightness.tmp", "/run/clock/brightness") == 0)
@@ -546,6 +591,34 @@ static void publish_brightness(int level) {
   } else {
     close(fd);
   }
+}
+
+/* Nudge the driven level gvaluef one constant-ratio step toward
+   brightness_target. Called every render tick (see clockfn's adaptive usleep):
+   while a ramp is in progress the loop ticks fast, so many small steps make a
+   quick-but-smooth glide; when settled (gvaluef == target) it is a no-op and
+   the loop idles. No-op too when brightness is fixed (-g) or before the first
+   sensor reading has established a target. Issues #10 / #19. */
+static void step_brightness_ramp(void) {
+  if (!dynamic_brightness || brightness_samples == 0) return;
+  if (brightness_target < gvaluef) {
+    // descending in brightness
+    float ngval = gvaluef / BRIGHTNESS_FACTOR_DOWN;
+    gvaluef = max((float) brightness_target, ngval);
+  } else if (brightness_target > gvaluef) {
+    // ascending brightness
+    if (gvaluef <= 0) { // if gvaluef is 0 it will never increase, bump to 1
+      gvaluef = 1;
+    }
+    float ngval = gvaluef * BRIGHTNESS_FACTOR_UP;
+    gvaluef = min((float) brightness_target, ngval);
+  }
+}
+
+/* True while the ramp has not yet reached its target -- the render loop uses
+   this to pick the fast tick rate, and settles back to idle once it clears. */
+static int brightness_ramping(void) {
+  return dynamic_brightness && (int) round(gvaluef) != brightness_target;
 }
 
 void clockfn() {
@@ -560,7 +633,8 @@ void clockfn() {
     t = time(NULL);
     tm = *localtime(&t);
     
-    get_brightness ( tsl2561_address);
+    get_brightness ( tsl2561_address);       /* refresh brightness_target (~1/s) */
+    step_brightness_ramp();                   /* glide gvaluef toward it, every tick */
     publish_brightness((int) round(gvaluef));  /* expose to telemetry (ADR 0003) */
 
     // convert to 12 hour clock
@@ -595,7 +669,10 @@ void clockfn() {
       unblank_display();
       first_frame = 0;
     }
-    usleep(500000);
+    // Tick fast while the brightness is actively ramping so the glide is
+    // smooth, and drop back to the settled ~2 Hz cadence otherwise (which
+    // preserves the original steady-state self-heal / P1 boot behaviour).
+    usleep(brightness_ramping() ? RAMP_FAST_US : RAMP_IDLE_US);
   }
 }
 
@@ -694,6 +771,15 @@ void clockfn() {
       write_led_buffer();
     } else {
       /// assuming we are setting individual segments
+      // Bounds-check before indexing: cvalue defaults to -1 and comes from an
+      // unchecked atoi(-c), so a bare `clock`, `clock -b`, or a bad -c would
+      // otherwise write buf[-1] / buf[huge] -- an out-of-bounds write.
+      if (cvalue < 0 || cvalue >= channels) {
+        fprintf(stderr, "Error: -c channel must be 0-%d (got %d); nothing to do.\n",
+                channels - 1, cvalue);
+        usage();
+        exit(EXIT_FAILURE);
+      }
       buf[cvalue] = round(gvaluef);
       write_led_buffer();
     }

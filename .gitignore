@@ -10,3 +10,4 @@ tsl2561-daemon/tsl2561-daemon.o
 # Saved reference web pages (bulky); useful extracts live in docs/reference/
 /ti-forum/
 
+clock-asan
