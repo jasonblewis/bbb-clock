@@ -1,29 +1,18 @@
-TARGET = server
-LIBS = -lm
 CC = gcc
-CFLAGS = -g -Wall
-INCLUDES = -I./tsl2561
+# gnu17 (not c17): the vendored TSL2561 lib uses POSIX usleep(), hidden under strict c17.
+CFLAGS = -std=gnu17 -g -Wall -I./tsl2561
+LIBS = -lm
+LIBSRC = tsl2561/TSL2561.c
 
-.PHONY: default all clean
+.PHONY: all clean
+all: tsl2561-daemon client
 
-default: $(TARGET)
+# Daemon: server + vendored sensor lib. client.c has its own main() -> built separately.
+tsl2561-daemon: tsl2561-daemon.c $(LIBSRC) tsl2561/TSL2561.h
+	$(CC) $(CFLAGS) -o $@ tsl2561-daemon.c $(LIBSRC) $(LIBS)
 
-OBJECTS = $(patsubst %.c, %.o, $(wildcard *.c))
-HEADERS = $(wildcard *.h)
-
-%.o: %.c $(HEADERS)
-	$(CC) $(CFLAGS) $(INCLUDES)x -c $< -o $@
-
-.PRECIOUS: $(TARGET) $(OBJECTS)
-
-$(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -Wall $(LIBS) -o $@
+client: client.c
+	$(CC) $(CFLAGS) -o $@ client.c $(LIBS)
 
 clean:
-	-rm -f *.o
-	-rm -f $(TARGET)
-
-tsl2561:
-	$(MAKE) -C tsl2561
-
-all: tsl2561 default
+	-rm -f tsl2561-daemon client *.o

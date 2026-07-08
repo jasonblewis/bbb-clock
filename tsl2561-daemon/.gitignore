@@ -1,4 +1,4 @@
+/tsl2561-daemon
 /client
 /server
-/client.o
-/server.o
+*.o
