@@ -12,7 +12,7 @@ Every commit from this one onward may have been AI-assisted.
 
 ### Issue tracker
 
-Issues and PRDs live as GitHub issues on `jasonblewis/bbb-clock` (via the `gh` CLI). External PRs are **not** a triage surface. See `docs/agents/issue-tracker.md`.
+Issues and PRDs live as GitHub issues on `jasonblewis/bbb-clock` (via the `gh` CLI). External PRs **are** a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
