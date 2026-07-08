@@ -40,28 +40,32 @@
 #define default_brightness 1000
 // Ambient brightness ramp (issues #10 / #19).
 //
-// Each render cycle (~500 ms) nudges the driven level gvaluef toward the
-// target by a constant *ratio*: gvaluef *= FACTOR when brightening, /= FACTOR
-// when dimming. Constant-ratio stepping is what makes the ramp look smooth --
-// the steps are perceptually uniform (Weber's law) rather than uniform in
-// absolute grayscale. A full-range change (~50 -> ~4015) takes
-// ln(4015/50)/ln(FACTOR) steps, i.e. ~0.5 s * that many seconds.
+// Each render tick nudges the driven level gvaluef toward brightness_target by
+// a constant *ratio*: gvaluef *= FACTOR when brightening, /= FACTOR when
+// dimming. Constant-ratio stepping is what makes the ramp look smooth -- the
+// steps are perceptually uniform (Weber's law) rather than uniform in absolute
+// grayscale. A full-range change (~50 -> ~4015) takes ln(4015/50)/ln(FACTOR)
+// steps; the wall-clock time is that many *fast* ticks (see RAMP_FAST_US).
 //
-// The factor is exp(k): k is the per-step log-rate, and 0.5 s / k is the time
-// per e-fold. The original ramp used k=0.04 (exp(0.04)=1.040810774) in both
-// directions -> ~55 s each way, which was too slow to track the room.
+// Responsiveness is set by the tick rate, not just the factor: the eye only
+// sees one gvaluef per rendered frame, so a smooth-yet-fast ramp needs many
+// frames. The render loop therefore ticks fast (RAMP_FAST_US) *only while a
+// ramp is in progress* and idles at RAMP_IDLE_US when settled -- so a full
+// 50->4015 sweep is ~5 s, small changes proportionally quicker, and steady
+// state keeps the old ~2 Hz cadence (and its P1 boot / self-heal behaviour).
 //
-// It is now asymmetric and faster: brighten quickly so the display responds
-// when a light comes on, dim a little more gently to avoid an abrupt darkening
-// when the sensor is briefly shadowed. Both are still constant-ratio, so the
-// smooth-ramp intent survives. Tune by eye on-device: raise k for a faster/
-// snappier ramp, lower it if stepping becomes visible.
-//
-//   k=0.08 exp=1.083287  ~27 s full range   (up: 2x the old rate)
-//   k=0.06 exp=1.061837  ~37 s full range   (down: 1.5x the old rate)
-//   k=0.04 exp=1.040810774  ~55 s           (old rate, both directions)
-#define BRIGHTNESS_FACTOR_UP   1.083287  // exp(0.08) -- brighten fast
-#define BRIGHTNESS_FACTOR_DOWN 1.061837  // exp(0.06) -- dim gently
+// The factor is exp(k): k is the per-step log-rate. At 66 ms/tick (15 Hz) a
+// ramp of ~76 steps is ~5 s. Tune by eye on-device: a bigger factor OR a
+// shorter RAMP_FAST_US makes it snappier; back either off if stepping shows.
+//   k=0.058 exp=1.0596  ~76 steps @66ms -> ~5 s full range (current)
+//   (old ramp was exp(0.04) at a fixed 500 ms tick -> ~55 s.)
+#define BRIGHTNESS_FACTOR_UP   1.0596  // exp(0.058) -- ~5 s full-range brighten
+#define BRIGHTNESS_FACTOR_DOWN 1.0596  // exp(0.058) -- ~5 s full-range dim
+#define RAMP_FAST_US  66000   // ~15 Hz: tick rate while gvaluef chases target
+#define RAMP_IDLE_US  500000  // ~2 Hz: settled cadence (unchanged self-heal)
+#define RAMP_POLL_MS  2       // near-non-blocking sensor poll (was 450 -> blocked
+                              // the fast tick); select still returns the instant
+                              // data is buffered, this only caps the empty wait
 
 
 static int sockfd = 0;
@@ -163,6 +167,8 @@ uint8_t mode = 0;
 int cvalue = -1; // channel to set
 //uint16_t gvalue = 0; // to this greyscale value
 float gvaluef = 0;
+uint16_t brightness_target = 0; // grayscale level the ramp is chasing (0-4015);
+                                // updated on each new sensor reading, see #10/#19
 int gvalue_set = 0; // flag to determine if we have set a gvalue or not
 int dvalue = -1; // digit to set
 int vvalue = -1; // value to set digit to
@@ -487,7 +493,11 @@ int get_brightness(char *ipaddress) {
   }
   if ( socket_open !=0 ) { // now if its open, get the brightness
     debug_print("about to call recv_to\n");
-    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
+    // Non-blocking poll: the render loop steps the ramp every tick (up to
+    // ~15 Hz while ramping), so this must not stall on a 450 ms select wait.
+    // The daemon only emits ~1/s, so most polls return -2; we just keep the
+    // last target and let step_brightness_ramp() keep gliding toward it.
+    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,RAMP_POLL_MS);
     if (n > 0 ) {
       recvBuff[n] = 0; //null terminate the string
       sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
@@ -496,26 +506,10 @@ int get_brightness(char *ipaddress) {
       add_brightness_to_buffer(current_ambient);
       update_average_brightness();
       if (dynamic_brightness) {
-        uint16_t map = brightness_map(current_ambient_average);
-        float ngval;
-        if (map < gvaluef) {
-          // descending in brightness
-          ngval = gvaluef / BRIGHTNESS_FACTOR_DOWN;
-          printf("descending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
-          gvaluef = max(map, ngval);
-          
-        } else if (map > gvaluef) {
-          // ascending brightness
-          if (gvaluef <= 0) { // if gvaluef is 0 it will never
-                              // increase so just change it to 1
-            gvaluef = 1;
-          }
-          ngval = gvaluef * BRIGHTNESS_FACTOR_UP;
-          printf("ascending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
-          gvaluef = min(map,ngval);
-        } else {
-          printf("map = gvaluef: %d %.2f\n",map,gvaluef);
-        };
+        // Only refresh the target here; the actual ramp toward it is stepped
+        // every render tick by step_brightness_ramp() (decoupled so the ramp
+        // stays smooth regardless of how often the sensor reports).
+        brightness_target = brightness_map(current_ambient_average);
       };
       if (brightness_option) {
             printf("broadband brightness: %d\n",current_ambient);
@@ -570,6 +564,34 @@ static void publish_brightness(int level) {
   }
 }
 
+/* Nudge the driven level gvaluef one constant-ratio step toward
+   brightness_target. Called every render tick (see clockfn's adaptive usleep):
+   while a ramp is in progress the loop ticks fast, so many small steps make a
+   quick-but-smooth glide; when settled (gvaluef == target) it is a no-op and
+   the loop idles. No-op too when brightness is fixed (-g) or before the first
+   sensor reading has established a target. Issues #10 / #19. */
+static void step_brightness_ramp(void) {
+  if (!dynamic_brightness || brightness_samples == 0) return;
+  if (brightness_target < gvaluef) {
+    // descending in brightness
+    float ngval = gvaluef / BRIGHTNESS_FACTOR_DOWN;
+    gvaluef = max((float) brightness_target, ngval);
+  } else if (brightness_target > gvaluef) {
+    // ascending brightness
+    if (gvaluef <= 0) { // if gvaluef is 0 it will never increase, bump to 1
+      gvaluef = 1;
+    }
+    float ngval = gvaluef * BRIGHTNESS_FACTOR_UP;
+    gvaluef = min((float) brightness_target, ngval);
+  }
+}
+
+/* True while the ramp has not yet reached its target -- the render loop uses
+   this to pick the fast tick rate, and settles back to idle once it clears. */
+static int brightness_ramping(void) {
+  return dynamic_brightness && (int) round(gvaluef) != brightness_target;
+}
+
 void clockfn() {
 
   if (!gvalue_set) { gvaluef = 0; }
@@ -582,7 +604,8 @@ void clockfn() {
     t = time(NULL);
     tm = *localtime(&t);
     
-    get_brightness ( tsl2561_address);
+    get_brightness ( tsl2561_address);       /* refresh brightness_target (~1/s) */
+    step_brightness_ramp();                   /* glide gvaluef toward it, every tick */
     publish_brightness((int) round(gvaluef));  /* expose to telemetry (ADR 0003) */
 
     // convert to 12 hour clock
@@ -617,7 +640,10 @@ void clockfn() {
       unblank_display();
       first_frame = 0;
     }
-    usleep(500000);
+    // Tick fast while the brightness is actively ramping so the glide is
+    // smooth, and drop back to the settled ~2 Hz cadence otherwise (which
+    // preserves the original steady-state self-heal / P1 boot behaviour).
+    usleep(brightness_ramping() ? RAMP_FAST_US : RAMP_IDLE_US);
   }
 }
 
