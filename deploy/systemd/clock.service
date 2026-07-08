@@ -1,0 +1,23 @@
+[Unit]
+Description=LED clock display
+Documentation=https://github.com/jasonblewis/bbb-clock
+# clock.c writes frames to /dev/spidev0.0 (SPI0, enabled by the BB-SPIDEV0
+# u-boot overlay) and reads brightness from tsl2561-daemon on 127.0.0.1:5000.
+Requires=tsl2561-daemon.service
+After=tsl2561-daemon.service
+# Prefer a synced clock before we start displaying time (best-effort, not blocking).
+Wants=time-sync.target
+After=time-sync.target
+
+[Service]
+Type=simple
+# P1 (ADR 0001): clock unblanks the display itself (gpio20) AFTER its first valid
+# frame, so the display fails safe (stays dark) until real data is on the chips.
+# Do NOT add any early-unblank helper here or elsewhere.
+ExecStart=/usr/local/bin/clock -t
+# Restart covers the case where /dev/spidev0.0 isn't ready the instant we start.
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

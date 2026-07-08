@@ -1,0 +1,20 @@
+[Unit]
+Description=TSL2561 ambient-light sensor daemon (serves lux to the clock on 127.0.0.1:5000)
+Documentation=https://github.com/jasonblewis/bbb-clock
+# Reads the TSL2561 over I2C and serves readings on a local TCP socket that
+# clock.service connects to (clock.c: tsl2561_address = "127.0.0.1").
+After=local-fs.target
+
+[Service]
+Type=simple
+# NOTE: the binary opens /dev/i2c-%d. On the OLD 3.8 kernel the sensor was on
+# /dev/i2c-1; on mainline 6.18 the P9_19/20 header bus is typically /dev/i2c-2.
+# Pass the correct bus as an argument if the daemon accepts one; otherwise the
+# default is baked in and the source needs a one-line change + rebuild.
+# VERIFY on device with: i2cdetect -y -r 2  (expect 0x39)
+ExecStart=/usr/local/bin/tsl2561-daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

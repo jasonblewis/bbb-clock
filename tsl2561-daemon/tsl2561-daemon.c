@@ -21,7 +21,7 @@ uint32_t lux=0;
 // prepare the sensor
 // (the first parameter is the raspberry pi i2c master controller attached to the TSL2561, the second is the i2c selection jumper)
 // The i2c selection address can be one of: TSL2561_ADDR_LOW, TSL2561_ADDR_FLOAT or TSL2561_ADDR_HIGH
-TSL2561 light1 = TSL2561_INIT(1, TSL2561_ADDR_FLOAT);
+TSL2561 light1 = TSL2561_INIT(2, TSL2561_ADDR_FLOAT); // i2c bus 2 (/dev/i2c-2) on Debian 13 / kernel 6.x; was bus 1 on the old 3.8 kernel
 	
 int listenfd = 0, connfd = 0;
  

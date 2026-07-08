@@ -244,30 +244,39 @@ int write_led_buffer(void) {
   return 0;
 }
 
-/* Drive gpio20 high to unblank the display (BC548 -> /OE low -> outputs enabled).
-   Called ONCE, right after the first valid frame has been written, so the
-   power-on grayscale latch garbage is never made visible. See ADR 0001: with
-   the displayon init service disabled, nothing unblanks early, so the hardware
+/* Drive the blank-control gpio high to unblank the display
+   (BC548 -> /OE low -> outputs enabled). Called ONCE, right after the first
+   valid frame has been written, so the power-on grayscale latch garbage is
+   never made visible. See ADR 0001: with nothing unblanking early, the hardware
    pull-down keeps the display dark from power-on until this runs. Failure here
-   fails safe (display stays blank). Mirrors displayon.sh's sysfs sequence. */
+   fails safe (display stays blank).
+
+   PIN: header P9_41 is a BBB "double pin" — two SoC balls tie to the same
+   header pin: P9_41A = gpio0_20 (pad XDMA_EVENT_INTR1) and P9_41B = gpio3_20
+   (pad MCASP0_AHCLKR). The old 3.8 kernel drove P9_41A as sysfs "gpio20". On
+   Debian 13 / kernel 6.18 that side is unusable: its pad is stuck in mux mode 3
+   and gpio0_20 is claimed by the eMMC reset. P9_41B / gpio3_20 IS already muxed
+   to gpio (mode 7), so we drive that instead — same physical pin, no overlay.
+   sysfs numbering is 512-based here: gpio3_20 = gpiochip3 base (608) + 20 = 628. */
+#define BLANK_GPIO "628"   /* gpio3_20 / P9_41B; see note above */
 void unblank_display(void) {
   int fd, i;
   ssize_t n;
 
-  /* export gpio20 (harmless EBUSY if already exported) */
+  /* export the blank gpio (harmless EBUSY if already exported) */
   fd = open("/sys/class/gpio/export", O_WRONLY);
-  if (fd >= 0) { n = write(fd, "20", 2); (void)n; close(fd); }
+  if (fd >= 0) { n = write(fd, BLANK_GPIO, sizeof(BLANK_GPIO) - 1); (void)n; close(fd); }
 
   /* direction node can lag export briefly (udev) - retry a few times */
   for (i = 0; i < 20; i++) {
-    fd = open("/sys/class/gpio/gpio20/direction", O_WRONLY);
+    fd = open("/sys/class/gpio/gpio" BLANK_GPIO "/direction", O_WRONLY);
     if (fd >= 0) { n = write(fd, "out", 3); (void)n; close(fd); break; }
     usleep(10000);
   }
 
-  fd = open("/sys/class/gpio/gpio20/value", O_WRONLY);
+  fd = open("/sys/class/gpio/gpio" BLANK_GPIO "/value", O_WRONLY);
   if (fd >= 0) { n = write(fd, "1", 1); (void)n; close(fd); }
-  else perror("unblank_display: could not open gpio20/value");
+  else perror("unblank_display: could not open gpio" BLANK_GPIO "/value");
 }
 
 int spi_init(void) {
@@ -275,9 +284,9 @@ int spi_init(void) {
   for (i = 0; i < channels ; i++) {
     buf[i] = 0x0000;  }
   
-  file = open("/dev/spidev1.0",O_WRONLY); //dev
+  file = open("/dev/spidev0.0",O_WRONLY); //dev (SPI0/BB-SPIDEV0 on Debian 13 / kernel 6.x; was spidev1.0 on the old 3.8 kernel)
   if(file < 0) {
-    perror ("Error opening spidev1.0");
+    perror ("Error opening spidev0.0");
     exit(EXIT_FAILURE);
     return 1;
   }
@@ -459,7 +468,7 @@ int get_brightness(char *ipaddress) {
     n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,450);
     if (n > 0 ) {
       recvBuff[n] = 0; //null terminate the string
-      sscanf(recvBuff, "Test. RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
+      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
       debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
       current_ambient = broadband;
       add_brightness_to_buffer(current_ambient);
