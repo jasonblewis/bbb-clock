@@ -38,8 +38,30 @@
 #define connected_leds ((SEGMENTS * DIGITS) + DIGITS + EXTRA_LEDS)
 #define start_channel (channels - connected_leds) - 1
 #define default_brightness 1000
-//#define BRIGHTNESS_FACTOR 1.055484602
-#define BRIGHTNESS_FACTOR 1.040810774
+// Ambient brightness ramp (issues #10 / #19).
+//
+// Each render cycle (~500 ms) nudges the driven level gvaluef toward the
+// target by a constant *ratio*: gvaluef *= FACTOR when brightening, /= FACTOR
+// when dimming. Constant-ratio stepping is what makes the ramp look smooth --
+// the steps are perceptually uniform (Weber's law) rather than uniform in
+// absolute grayscale. A full-range change (~50 -> ~4015) takes
+// ln(4015/50)/ln(FACTOR) steps, i.e. ~0.5 s * that many seconds.
+//
+// The factor is exp(k): k is the per-step log-rate, and 0.5 s / k is the time
+// per e-fold. The original ramp used k=0.04 (exp(0.04)=1.040810774) in both
+// directions -> ~55 s each way, which was too slow to track the room.
+//
+// It is now asymmetric and faster: brighten quickly so the display responds
+// when a light comes on, dim a little more gently to avoid an abrupt darkening
+// when the sensor is briefly shadowed. Both are still constant-ratio, so the
+// smooth-ramp intent survives. Tune by eye on-device: raise k for a faster/
+// snappier ramp, lower it if stepping becomes visible.
+//
+//   k=0.08 exp=1.083287  ~27 s full range   (up: 2x the old rate)
+//   k=0.06 exp=1.061837  ~37 s full range   (down: 1.5x the old rate)
+//   k=0.04 exp=1.040810774  ~55 s           (old rate, both directions)
+#define BRIGHTNESS_FACTOR_UP   1.083287  // exp(0.08) -- brighten fast
+#define BRIGHTNESS_FACTOR_DOWN 1.061837  // exp(0.06) -- dim gently
 
 
 static int sockfd = 0;
@@ -478,7 +500,7 @@ int get_brightness(char *ipaddress) {
         float ngval;
         if (map < gvaluef) {
           // descending in brightness
-          ngval = gvaluef / BRIGHTNESS_FACTOR;
+          ngval = gvaluef / BRIGHTNESS_FACTOR_DOWN;
           printf("descending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
           gvaluef = max(map, ngval);
           
@@ -488,7 +510,7 @@ int get_brightness(char *ipaddress) {
                               // increase so just change it to 1
             gvaluef = 1;
           }
-          ngval = gvaluef * BRIGHTNESS_FACTOR;
+          ngval = gvaluef * BRIGHTNESS_FACTOR_UP;
           printf("ascending: gvaluef %.2f map %d ngval %.2f\n",gvaluef,map,ngval);
           gvaluef = min(map,ngval);
         } else {
