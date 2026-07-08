@@ -73,7 +73,17 @@ static char recvBuff[1024];
 static int current_ambient;
 static char *tsl2561_address = "127.0.0.1"; // ip address for tsl2561
                                             // brightness daemon
-#define moving_ave_period  10
+// Moving-average window over ambient samples, smoothing sensor noise before
+// the ramp. The daemon emits ~1 sample/s, so this is roughly the window in
+// SECONDS -- and, worse, one stale saturated sample pins the average above the
+// brightness_map clamp until it ages out, so ~N seconds pass before a target
+// drop is even noticed after a bright light is removed. At 10 that was a ~10 s
+// lag to *start* dimming. The constant-ratio ramp already smooths gvaluef, so a
+// long pre-filter is mostly redundant lag; 3 keeps single-sample noise
+// rejection while letting the target track within a couple of seconds. Real
+// room-light changes (unsaturated) respond faster still; the torch is the
+// worst case. Tune up for more smoothing, down (min 1 = none) for more speed.
+#define moving_ave_period  3
 static int brightness_buffer[moving_ave_period];
 static float current_ambient_average;
 static uint16_t brightness_samples = 0;
@@ -485,7 +495,7 @@ int get_brightness(char *ipaddress) {
 
   debug_print("in get_brightness\n");
   int n = 0;
-  int broadband, ir, lux;
+  int broadband = 0, ir = 0, lux = 0;  /* init: never fed unparsed (see below) */
   if (socket_open == 0) { // open the socket if its not already open
     debug_print("socket not open, opening it\n");
     if (open_socket (tsl2561_address) != 0) {
@@ -503,24 +513,35 @@ int get_brightness(char *ipaddress) {
     // ~15 Hz while ramping), so this must not stall on a 450 ms select wait.
     // The daemon only emits ~1/s, so most polls return -2; we just keep the
     // last target and let step_brightness_ramp() keep gliding toward it.
-    n = recv_to (sockfd,recvBuff,1024,MSG_DONTWAIT,RAMP_POLL_MS);
+    // sizeof-1, not 1024: recvBuff[n] below writes the NUL terminator, so recv
+    // must never fill the last byte (recv returning exactly the buffer size
+    // would put recvBuff[n] one past the end).
+    n = recv_to (sockfd,recvBuff,sizeof(recvBuff)-1,MSG_DONTWAIT,RAMP_POLL_MS);
     if (n > 0 ) {
       recvBuff[n] = 0; //null terminate the string
-      sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d", &broadband, &ir, &lux);
-      debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
-      current_ambient = broadband;
-      add_brightness_to_buffer(current_ambient);
-      update_average_brightness();
-      if (dynamic_brightness) {
-        // Only refresh the target here; the actual ramp toward it is stepped
-        // every render tick by step_brightness_ramp() (decoupled so the ramp
-        // stays smooth regardless of how often the sensor reports).
-        brightness_target = brightness_map(current_ambient_average);
-      };
-      if (brightness_option) {
-            printf("broadband brightness: %d\n",current_ambient);
-      };
-      
+      // Only trust a fully-parsed success line. A sensor error / saturation
+      // line (RC != 0), or a partial/coalesced TCP read, matches fewer than 3
+      // fields -- feeding an *unparsed* broadband into the moving average would
+      // corrupt it (same failure class as the uint16_t overflow). Skip it and
+      // keep the last good target rather than lurching on garbage.
+      if (sscanf(recvBuff, "RC: 0(Success), broadband: %d, ir: %d, lux: %d",
+                 &broadband, &ir, &lux) == 3 && broadband >= 0) {
+        debug_print("broadband: %d, ir: %d, lux: %d\n",broadband,ir,lux);
+        current_ambient = broadband;
+        add_brightness_to_buffer(current_ambient);
+        update_average_brightness();
+        if (dynamic_brightness) {
+          // Only refresh the target here; the actual ramp toward it is stepped
+          // every render tick by step_brightness_ramp() (decoupled so the ramp
+          // stays smooth regardless of how often the sensor reports).
+          brightness_target = brightness_map(current_ambient_average);
+        }
+        if (brightness_option) {
+          printf("broadband brightness: %d\n",current_ambient);
+        }
+      } else {
+        debug_print("skipping unparseable sensor line: %.64s\n", recvBuff);
+      }
     } else {
       switch (n) {
       case 0:
@@ -561,6 +582,8 @@ static void publish_brightness(int level) {
   if (fd < 0) return;                 /* /run/clock absent (boot race) -> skip */
   char b[16];
   int len = snprintf(b, sizeof b, "%d\n", level);
+  if (len < 0) { close(fd); return; }               /* encoding error */
+  if (len >= (int) sizeof b) len = (int) sizeof b - 1; /* clamp on truncation */
   if (write(fd, b, len) == len) {
     close(fd);
     if (rename("/run/clock/brightness.tmp", "/run/clock/brightness") == 0)
@@ -748,6 +771,15 @@ void clockfn() {
       write_led_buffer();
     } else {
       /// assuming we are setting individual segments
+      // Bounds-check before indexing: cvalue defaults to -1 and comes from an
+      // unchecked atoi(-c), so a bare `clock`, `clock -b`, or a bad -c would
+      // otherwise write buf[-1] / buf[huge] -- an out-of-bounds write.
+      if (cvalue < 0 || cvalue >= channels) {
+        fprintf(stderr, "Error: -c channel must be 0-%d (got %d); nothing to do.\n",
+                channels - 1, cvalue);
+        usage();
+        exit(EXIT_FAILURE);
+      }
       buf[cvalue] = round(gvaluef);
       write_led_buffer();
     }
