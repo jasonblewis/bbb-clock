@@ -215,7 +215,13 @@ uint16_t brightness_map(float brightness) {
 
 void update_average_brightness(void) {
 
-  uint16_t sum = 0;
+  // sum must be wide enough for moving_ave_period broadband samples. broadband
+  // is small in normal light but reaches tens of thousands under bright light
+  // (e.g. a torch on the sensor); a uint16_t sum wrapped past 65535 there,
+  // producing a garbage average that swung ~200<->3500 sample-to-sample and
+  // made the ramp lurch on the way down. 32 bits holds 10 * 65535 with room to
+  // spare. (Latent for years: normal ambient never summed high enough.)
+  uint32_t sum = 0;
   for (uint16_t x = 0; x < brightness_samples ; x++) {
     sum = sum + brightness_buffer[x];
   }
