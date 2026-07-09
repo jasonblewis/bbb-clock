@@ -18,11 +18,14 @@
 #include "tsl2561/TSL2561.h"
 
 /* How often the sensor is sampled into the cache, independent of client
-   connection rate. The served value is at most this stale. ~200 ms is a safe
-   default: it comfortably exceeds the 101 ms integration time and stays well
-   above the effective sensor rate, while letting the daemon drain the clock's
-   ~15 Hz reconnect burst (during a brightness ramp) between samples. See #21. */
-#define SAMPLE_INTERVAL_MS 200
+   connection rate. The served value is at most this stale. It MUST comfortably
+   exceed the integration time (below), because sample_sensor() blocks for that
+   long: at 402 ms integration a 200 ms cadence would perpetually fall behind and
+   resync every loop (free-running). 600 ms clears the 402 ms integration with
+   margin, stays well above the effective sensor rate, and still lets the daemon
+   drain the clock's ~15 Hz reconnect burst (during a brightness ramp) between
+   samples. See #21 (caching) and #18 (integration-time bump). */
+#define SAMPLE_INTERVAL_MS 600
 
 int rc;
 uint16_t broadband, ir;
@@ -59,10 +62,22 @@ int init_tsl2561(void) {
 
 /* Read the sensor once (single I2C owner: only ever called from the main
    loop, never concurrently) and refresh the cached wire line. This is where
-   the ~101 ms integration latency lives — off the connection-serving path. */
+   the ~402 ms integration latency lives — off the connection-serving path. */
 void sample_sensor(void)
 {
-  rc = TSL2561_SETINTEGRATIONTIME(&light1, TSL2561_INTEGRATIONTIME_101MS);
+  /* 402 ms (longest integration) for low-light resolution: at 101 ms an
+     ordinarily-lit room floored broadband at ~1, giving the dimming curve no
+     signal to work with. 402 ms lifts dim rooms off the floor (~4x the counts).
+     Auto-gain stays on (last arg of TSL2561_SENSELIGHT). Trade-off (#18): 402 ms
+     saturates the broadband/lux channel at 65535 under strong direct light
+     (a torch, close). This is harmless for the *display* (it already saturates
+     to full brightness at broadband 1640, far below the clip), but it does cap
+     the reported lux for any bright-light *telemetry* consumer (#8/HA). Accepted:
+     the dim-room resolution this buys is the goal, and the sensor sits behind
+     dark-red acrylic that attenuates real ambient well below the clip in practice.
+     COUPLING: clock.c brightness_map()'s slope is fit to THIS integration time;
+     changing it here requires re-fitting there (separate binaries, no link). */
+  rc = TSL2561_SETINTEGRATIONTIME(&light1, TSL2561_INTEGRATIONTIME_402MS);
 
   // sense the luminosity from the sensor (lux is the luminosity taken in "lux" measure units)
   // the last parameter can be 1 to enable library auto gain, or 0 to disable it
