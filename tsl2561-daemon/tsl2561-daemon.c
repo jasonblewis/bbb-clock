@@ -101,7 +101,11 @@ int main(int argc, char *argv[])
 
   struct sockaddr_in serv_addr;
 
-  init_tsl2561();
+  if (init_tsl2561() != 0) {
+    // Sensor open failed: exit so systemd (Restart=on-failure) retries, rather
+    // than staying up and serving RC!=0 error lines forever.
+    return 1;
+  }
 
   listenfd = socket(AF_INET, SOCK_STREAM, 0);
   // see http://ubuntuforums.org/showthread.php?t=1351359 about
@@ -114,7 +118,10 @@ int main(int argc, char *argv[])
   // make a blocking accept() hang and stall the whole cadence loop. With
   // O_NONBLOCK such an accept() returns EAGAIN and we just loop back.
   int flags = fcntl(listenfd, F_GETFL, 0);
-  fcntl(listenfd, F_SETFL, flags | O_NONBLOCK);
+  if (flags == -1 || fcntl(listenfd, F_SETFL, flags | O_NONBLOCK) == -1) {
+    printf("\n Error : Could not set listen socket non-blocking. Error: %s\n", strerror(errno));
+    return 1;
+  }
 
   memset(&serv_addr, '0', sizeof(serv_addr));
 
