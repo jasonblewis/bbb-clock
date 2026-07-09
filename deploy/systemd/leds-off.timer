@@ -1,0 +1,11 @@
+[Unit]
+Description=Turn off status LEDs ~30s after boot
+Documentation=https://github.com/jasonblewis/bbb-clock
+
+[Timer]
+# Keep the LEDs lit for the first 30s (boot is visible), then dark them once.
+OnBootSec=30s
+# Oneshot: fires a single time per boot; no AccuracySec tuning needed.
+
+[Install]
+WantedBy=timers.target

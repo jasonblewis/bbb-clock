@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# LEGACY launcher. The clock now runs under clock.service, and the status LEDs
+# are darkened ~30s after boot by leds-off.timer (issue #12) — NOT immediately as
+# below. This inline LED-off block is superseded; kept only for the old path.
+
 # turn off LEDs
 
 for i in /sys/class/leds/beaglebone\:green\:usr*
