@@ -1,0 +1,16 @@
+[Unit]
+Description=Turn off all status LEDs so only the clock display is lit
+Documentation=https://github.com/jasonblewis/bbb-clock
+# Fired by leds-off.timer ~30s after boot (not At boot) so the onboard + WiFi
+# LEDs stay available as a boot-progress signal for the first 30s. See issue #12.
+
+[Service]
+Type=oneshot
+# Sweeps /sys/class/leds/*: detaches each trigger and zeroes brightness
+# (onboard USR0-3, MMC activity, USB WiFi dongle).
+# Deploy: install -m0755 deploy/bin/leds-off.sh /usr/local/bin/leds-off
+#         install -m0644 deploy/systemd/leds-off.{service,timer} /etc/systemd/system/
+#         systemctl daemon-reload && systemctl enable --now leds-off.timer
+# VERIFY on device: systemctl start leds-off.service; then every entry under
+#         /sys/class/leds/*/trigger should read [none] and brightness 0.
+ExecStart=/usr/local/bin/leds-off

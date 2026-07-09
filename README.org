@@ -38,10 +38,24 @@ https://learn.adafruit.com/adding-a-real-time-clock-to-beaglebone-black/set-rtc-
 ** TSL2561 luminosity sensor
 https://www.adafruit.com/product/439
 
-** Turn off the wifi module LED (optional)
-The USB wifi dongle's green LED blinks constantly; to stop it:
+** Turn off the status LEDs after boot
+The clock lives in a bedroom, so every stray blinking LED (the BBB onboard
+=USR0-3=, the MMC/SD activity LED, and the USB WiFi dongle LED) is turned off
+~30s after boot — late enough that the LEDs still show boot progress. This is
+handled by =leds-off.timer= firing =leds-off.service= (=leds-off.sh= sweeps
+=/sys/class/leds/*=). See issue #12.
+
+Deploy:
 #+begin_src bash
-# turn off wifi green LED
+install -m 0755 deploy/bin/leds-off.sh /usr/local/bin/leds-off
+install -m 0644 deploy/systemd/leds-off.service deploy/systemd/leds-off.timer \
+  /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now leds-off.timer
+#+end_src
+
+To do it by hand for one LED (e.g. the WiFi dongle):
+#+begin_src bash
 echo none > /sys/class/leds/ath9k_htc-phy0/trigger
 #+end_src
 
@@ -51,6 +65,7 @@ echo none > /sys/class/leds/ath9k_htc-phy0/trigger
 - =displayon= — legacy service that unblanked the display at boot; superseded by
   clock's own =unblank_display()= (see docs/adr/0001)
 - =clock= — the clock daemon that manages the display
+- =leds-off.timer= — darkens all status LEDs ~30s after boot (issue #12)
 
 * Hardware
 Domain vocabulary used below is defined in =CONTEXT.md=.
