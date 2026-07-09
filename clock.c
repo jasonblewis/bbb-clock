@@ -208,30 +208,33 @@ void usage(void) {
 // "brightness" for the display output.
 uint16_t brightness_map(float ambient) {
 
-  //  return(round( ( (float) ambient * 34.9) + 1));
-  //  original 101 ms fit: y = 9.692 * x - 1.266
-  //  402 ms re-fit (#18):  y = 2.449 * x - 1.266
-  // The daemon integration time went 101 ms -> 402 ms so ordinarily-lit rooms
-  // read off the floor (dim room broadband ~7 -> ~28) with usable resolution.
-  // Broadband counts scale by the measured 101->402 ratio k=3.958 (28.5/7.2 at
-  // a fixed light; matches the 402/101=3.98 integration ratio, i.e. auto-gain
-  // held the same 16x regime — which it does everywhere below the 1640 counts
-  // where the display already saturates). To keep the *visual* dimming identical
-  // we reparametrise the old fit: new_map(x) = old_map(x/k), so the slope divides
-  // by k (9.692/3.958 = 2.449) and the intercept is unchanged. Saturation to full
-  // brightness moves from broadband 414 to 1640 (the 4x image of before).
+  //  history: 101 ms fit  y = 9.692 * x - 1.266
+  //           402 ms #18  y = 2.449 * x - 1.266   (behaviour-preserving reparametrise)
+  //  PROVISIONAL #33 re-tune: y = 4.70 * x + 25
+  // #18 only fixed the sensor's low-light *resolution* (101->402 ms integration);
+  // it preserved the old curve, which is too dim in bright light. #33 re-shapes the
+  // curve from measured (broadband -> preferred-grayscale) points chosen by eye on
+  // the actual display behind its red acrylic. Two anchors so far:
+  //     evening, lights off (broadband 1)  -> grayscale 30
+  //     all lights + blind open (bb 133)   -> grayscale 650
+  // Provisional straight line through them: slope (650-30)/(133-1) = 4.70,
+  // intercept 30 - 4.70 = 25. ~2x the #18 curve. STILL PROVISIONAL: only two
+  // points, so the mid-range and bright-daylight shape (possible curvature) is
+  // unverified — add points and re-fit before finalising. Saturates to full
+  // brightness at broadband (4015-25)/4.70 = 849.
   //
-  // COUPLING: this slope is tied to the daemon's TSL2561 integration time
-  // (tsl2561-daemon.c, TSL2561_INTEGRATIONTIME_402MS). The two binaries build
-  // separately and share no compile-time link, so if you change the integration
-  // time you MUST re-fit this slope by the new ratio (and vice-versa). See #18.
+  // COUPLING: this fit assumes the daemon's 402 ms integration time
+  // (tsl2561-daemon.c, TSL2561_INTEGRATIONTIME_402MS) — broadband scales with it.
+  // The two binaries build separately with no compile-time link; change the
+  // integration time and this fit MUST be re-derived (and vice-versa). See #18/#33.
   //
-  // NOTE: b MUST be signed. The line fit goes negative for ambient below
-  // ~0.5, and lrint() returns a negative long there. A uint16_t b wrapped
-  // that to ~65535, tripping the `b >= 4015` clamp and returning MAX
-  // brightness in the dark (P1-adjacent regression: dark room -> full bright).
+  // b is signed as a guard: a future re-fit with a negative intercept would go
+  // negative in the dark, and lrint() -> negative long; a uint16_t b would wrap
+  // to ~65535 and trip `b >= 4015`, returning MAX in the dark (dark-room full
+  // bright, P1-adjacent). This fit's intercept is +25 so it never goes negative,
+  // but keep b signed so the clamp below stays a real floor, not a wrap.
   long b;
-  b = lrint(( 2.449 * ambient) - 1.266) ;
+  b = lrint(( 4.70 * ambient) + 25.0) ;
   if ( b >= 4015 ) {
     return 4015;
   } else if (b <= 5) {
