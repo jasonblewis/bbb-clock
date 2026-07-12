@@ -1,5 +1,0 @@
-Short-Description: turn clock display on
-Description: Turn the clock display on by sendgin GPIO_20 high, which in turn pulls /OE of the TLC5947 low
-Exec:  /usr/local/bin/displayon.sh
-
-Poststop-Hook: /usr/local/bin/displayoff.sh;
