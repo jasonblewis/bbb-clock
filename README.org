@@ -149,35 +149,52 @@ Supply-board notes:
 
 ** Blanking circuit (/OE control)
 A BC548 NPN transistor drives the daisy-chained /OE (BLANK) line
-(hand sketch dated 2015; pin has since changed):
-- Base <- 10 kΩ <- BBB *gpio20* (header *P9_41* = GPIO0_20).
+(hardware from a 2015 hand sketch; the *controlling pin* has since changed —
+see "Which pin" below):
+- Base <- 10 kΩ <- BBB blank-control gpio on header *P9_41*.
 - Collector -> /OE, and -> 1 kΩ pull-up to +5 V.
 - Emitter -> GND.
 
-Logic: gpio20 *high* -> transistor on -> /OE *low* -> *enabled*;
-gpio20 *low* -> transistor off -> /OE *high* (~4.5 V via the 1 k/10 k divider)
+Logic: gpio *high* -> transistor on -> /OE *low* -> *enabled*;
+gpio *low* -> transistor off -> /OE *high* (~4.5 V via the 1 k/10 k divider)
 -> *blanked*.
 
-- =displayon.sh= exports gpio20, sets it output, drives it *1* (enable).
-- =displayoff.sh= drives gpio20 *0* (blank).
-- =clock.c= never touches gpio20 — it is set once at boot and left enabled.
-- Caution: *P9_41 is a "double" pin* also tied to GPIO3_20 (gpio116); keep that
-  pin exclusive to blanking.
+*Which pin.* P9_41 is a BBB "double" pin: two SoC balls land on the same header
+pin — P9_41A = =gpio0_20= (the old sysfs "gpio20") and P9_41B = =gpio3_20=. The
+2015 wiring and the old 3.8 kernel used *gpio20* (P9_41A). On Debian 13 / kernel
+6.18 that side is unusable — its pad is stuck in mux mode 3 and gpio0_20 is
+claimed by the eMMC reset — so the software now drives *P9_41B / gpio3_20*
+instead: the *same physical pin*, no overlay. Under the 512-based sysfs numbering
+that is =gpio628= (=gpiochip3= base 608 + 20). See =BLANK_GPIO= in =clock.c=.
+
+- =clock.c='s =unblank_display()= drives the blank gpio *high* (enable) *once*,
+  right after the first valid frame is written, so power-on latch garbage is
+  never shown (see P1 below and ADR 0001). Nothing else touches the pin at
+  runtime; the legacy =displayon=/=displayoff= scripts that used to drive gpio20
+  have been removed from the tree.
 
 * Findings — LED brightness glitches (in progress)
 Two distinct faults share one symptom family: garbage grayscale reaching the LEDs.
 
-** P1 — power-up garbage (understood)
-Random bright LEDs from power-on until the software writes valid data.
-- *Cause*: at boot the grayscale latch holds undefined values, and nothing keeps
-  the chips blanked. The board's =R3= pulls BLANK low (enabled) by default, and
-  the BC548's base floats while the BBB boots (gpio20 is a hi-Z input, and P9_41
-  likely boots with an internal pull-up) — so /OE leaks low, outputs are enabled,
-  and the garbage latch is displayed until =displayon.sh= / =clock= run.
-- *Fix (planned)*: make "blanked" the fail-safe hardware default — a pull-down on
-  the BC548 base (so no active drive = blanked) plus a device-tree pinmux holding
-  gpio20 low/pulled-down through boot. Then blanking never depends on software
-  winning a race.
+** P1 — power-up garbage (FIXED & VERIFIED 2026-07-07 — see docs/adr/0001)
+Bright segments flashed during boot, before the software wrote valid data.
+- *Mechanism*: at power-on each chip's grayscale latch holds undefined values;
+  whether they are *shown* depends only on the BLANK (/OE) input. On the current
+  board the display is *already blank at power-on* (hardware default), so the
+  latch garbage was never shown at power-on itself.
+- *Root cause (2026-07-07, [[file:docs/adr/0001-default-blank-power-up.md][ADR 0001]]): a boot-order race*, not the hardware
+  default. Blanking was driven entirely by the legacy =displayon= init service,
+  which unblanked *early* (=S05=), while =clock= — which writes the first valid
+  frame — starts only at the *end* of boot from =rc.local= (where the SPI overlay
+  loads). So the undefined latch was unblanked and displayed for the whole window
+  from =S05= until =clock= finally wrote real data.
+- *Fix (implemented & cold-boot verified 2026-07-07)*: =clock= now unblanks
+  *itself* via =unblank_display()= immediately after its first frame — unblank is
+  causally after valid data, so no race remains — and the early =displayon=
+  boot-unblank was disabled (then the whole =displayon= service was removed from
+  the tree). The hardware base pull-down and the draft =BB-BLANK-00A0.dts= pinmux
+  overlay remain optional defense-in-depth for the pre-=clock= window, but are no
+  longer load-bearing.
 
 ** P2 — runtime random-bright glitch (FIXED & VERIFIED 2026-07-07 — see docs/adr/0002)
 Rare, random, position-varying LEDs momentarily jump bright, *self-healing on the
