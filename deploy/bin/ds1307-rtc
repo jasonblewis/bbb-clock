@@ -1,0 +1,45 @@
+#!/bin/sh
+# Manage the external DS1307 RTC on i2c-2 @ 0x68.
+#   ds1307-rtc hctosys  -> bind driver (idempotent), set system clock FROM the RTC
+#   ds1307-rtc systohc  -> write NTP-synced system time TO the RTC (skips if not synced)
+#
+# Deployed to /usr/local/sbin/ds1307-rtc on the clock BBB. Driven by
+# ds1307-rtc.service (boot: hctosys) and ds1307-writeback.{service,timer}
+# (periodic: systohc). See deploy/systemd/ alongside this file.
+#
+# Background: the BBB's internal omap_rtc (rtc0) has no battery and resets to
+# 2000-01-01 on cold power loss; the DS1307 (comes up as rtc1) provides
+# battery-backed time so the system clock is correct at cold boot when offline.
+set -eu
+
+DEVPATH=/sys/bus/i2c/devices/2-0068
+BUSPATH=/sys/bus/i2c/devices/i2c-2
+ACTION="${1:-hctosys}"
+
+wait_for() { n=0; while [ ! -e "$1" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; }
+
+# Ensure the ds1307 driver is bound to the chip (idempotent across reboots).
+if [ ! -e "$DEVPATH" ]; then
+    wait_for "$BUSPATH/new_device"
+    echo "ds1307 0x68" > "$BUSPATH/new_device"
+fi
+wait_for "$DEVPATH/rtc"
+RTC=$(ls "$DEVPATH/rtc" 2>/dev/null | head -n1)
+[ -n "$RTC" ] || { echo "ds1307-rtc: rtc node never appeared" >&2; exit 1; }
+
+case "$ACTION" in
+    hctosys)
+        hwclock --hctosys --utc -f "/dev/$RTC"
+        ;;
+    systohc)
+        if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -qx yes; then
+            hwclock --systohc --utc -f "/dev/$RTC"
+        else
+            echo "ds1307-rtc: NTP not synchronized; skipping writeback" >&2
+        fi
+        ;;
+    *)
+        echo "usage: ds1307-rtc {hctosys|systohc}" >&2
+        exit 2
+        ;;
+esac

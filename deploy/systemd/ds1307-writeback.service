@@ -1,0 +1,12 @@
+[Unit]
+Description=Write NTP-synced system time back to DS1307 RTC
+Documentation=https://github.com/jasonblewis/bbb-clock
+# Keeps the DS1307 fresh so its cold-boot time stays accurate. The helper only
+# writes when timedatectl reports NTPSynchronized=yes, so it never stores a bad
+# time. Triggered by ds1307-writeback.timer.
+After=time-sync.target
+Wants=time-sync.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ds1307-rtc systohc

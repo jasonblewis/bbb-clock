@@ -1,0 +1,19 @@
+[Unit]
+Description=Bind DS1307 external RTC and set system clock from it
+Documentation=https://github.com/jasonblewis/bbb-clock
+# The internal omap_rtc (rtc0) has no battery and boots to 2000-01-01 on cold
+# power loss. This runs early, binds the battery-backed DS1307 on i2c-2 @ 0x68
+# (comes up as rtc1), and copies its time into the system clock via hwclock
+# --hctosys, so cold boots have correct time even without a network.
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=sysinit.target time-set.target
+ConditionPathExists=/sys/bus/i2c/devices/i2c-2
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ds1307-rtc hctosys
+
+[Install]
+WantedBy=sysinit.target
