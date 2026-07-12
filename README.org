@@ -62,9 +62,9 @@ echo none > /sys/class/leds/ath9k_htc-phy0/trigger
 ** Startup processes
 - =tsl2561= daemon — reads ambient brightness, reports it to the clock process
 - =rtc= — runs the real-time clock
-- =displayon= — legacy service that unblanked the display at boot; superseded by
-  clock's own =unblank_display()= (see docs/adr/0001)
-- =clock= — the clock daemon that manages the display
+- =clock= — the clock daemon that manages the display; it unblanks the display
+  itself via =unblank_display()= after its first valid frame (see docs/adr/0001).
+  This replaced a legacy =displayon= boot service (removed from the tree).
 - =leds-off.timer= — darkens all status LEDs ~30s after boot (issue #12)
 
 * Hardware
