@@ -14,3 +14,7 @@ clock-asan
 
 # Claude Code atomic-write temp files (occasionally left behind)
 .claude/settings.local.json.tmp.*
+
+# Backup images produced by scripts/backup-emmc.sh (multi-GB, never commit)
+*.img.zst
+*.img.zst.sha256
