@@ -1,8 +1,13 @@
 * BBB Clock
 Beaglebone Black 7 Segment Display Clock with TL5947 SPI PWM LED Drivers
 ** To Compile:
+Build on the BeagleBone itself (its gcc is the reference toolchain), never
+cross-compiled. The Makefile bakes =git describe --always --dirty= into the
+binary; =clock -V= prints it, the service logs it at startup, and it is
+published to =/run/clock/version=.
 #+BEGIN_SRC bash
-make clock
+make clock                         # in a checkout
+scripts/deploy-clock.sh --restart  # ship source + VERSION to the BBB, build, install, restart
 #+end_SRC bash
 ** Testing
 *** Walk the digits displaying numbers 0-9
@@ -99,7 +104,7 @@ The pin comments in =clock.c= reference SPI0 header pins (P9_17/18/21/22) but th
 code opens =spidev1.0=. Pin/wiring experiments were done directly on the BBB, so
 before trusting any of this, capture ground truth from the live device:
 - =cat /sys/kernel/debug/gpio= (which GPIO actually drives /OE)
-- the running =clock= binary vs this source (build date / =strings=)
+- the running =clock= binary vs this source: =clock -V= or =cat /run/clock/version= (binaries built before 2026-10-31 have no version string; fall back to build date / =strings=)
 - the live SPI mode / speed / bits-per-word.
 
 ** Channel -> digit map

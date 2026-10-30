@@ -155,6 +155,15 @@ int const decimalpoint[DIGITS] = {11,7,3,27};
    re-check at `-g 600` and again in daylight. 2026-10-31: digit 2 = 0.7 by
    night, revised to 0.5 after a daylight check. */
 #define CLOCK_CONF "/etc/bbb-clock/clock.conf"
+
+/* Build identity. The Makefile injects -DCLOCK_VERSION="<git describe --always
+   --dirty>"; in the on-device build dir (not a git checkout) it reads the
+   VERSION file that scripts/deploy-clock.sh ships with the source. Reported by
+   `clock -V`, logged once at startup (-> journal) and published to
+   /run/clock/version, so "what is actually running?" has an answer. */
+#ifndef CLOCK_VERSION
+#define CLOCK_VERSION "unknown"
+#endif
 static float digit_trim[DIGITS] = {1.0f, 1.0f, 1.0f, 1.0f};
 static float colon_trim = 1.0f;   /* same idea for the four colon LEDs */
 
@@ -252,6 +261,7 @@ void usage(void) {
   printf("                 -b    show the current brightness detected by sensor\n");
   printf("                 -t    show the time\n");
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
+  printf("                 -V    print build version (git describe) and exit\n");
   printf("\n\n");
   printf("  if greyscale is set then LED brightness will be fixed at greyscale\n");
 }
@@ -653,22 +663,32 @@ int get_brightness(char *ipaddress) {
    torn value. A failure here is silently ignored: it must never affect the
    render loop. This establishes the convention "clock.c exposes internal state
    as one-value-per-file under /run/clock/". See ADR 0003 / issue #8. */
+static int publish_text(const char *tmp, const char *final, const char *text) {
+  int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0) return 0;               /* /run/clock absent (boot race) -> skip */
+  int len = (int) strlen(text);
+  int ok = (write(fd, text, len) == len);
+  close(fd);
+  return ok && rename(tmp, final) == 0;
+}
+
 static void publish_brightness(int level) {
   static int last = -1;
   if (level == last) return;
-  int fd = open("/run/clock/brightness.tmp", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  if (fd < 0) return;                 /* /run/clock absent (boot race) -> skip */
   char b[16];
   int len = snprintf(b, sizeof b, "%d\n", level);
-  if (len < 0) { close(fd); return; }               /* encoding error */
-  if (len >= (int) sizeof b) len = (int) sizeof b - 1; /* clamp on truncation */
-  if (write(fd, b, len) == len) {
-    close(fd);
-    if (rename("/run/clock/brightness.tmp", "/run/clock/brightness") == 0)
-      last = level;
-  } else {
-    close(fd);
-  }
+  if (len < 0 || len >= (int) sizeof b) return;     /* encoding error / truncated */
+  if (publish_text("/run/clock/brightness.tmp", "/run/clock/brightness", b))
+    last = level;
+}
+
+/* /run/clock/version: the CLOCK_VERSION string, written once the directory
+   exists (retried each tick until it succeeds, then never again). */
+static void publish_version(void) {
+  static int done = 0;
+  if (done) return;
+  done = publish_text("/run/clock/version.tmp", "/run/clock/version",
+                      CLOCK_VERSION "\n");
 }
 
 /* Nudge the driven level gvaluef one constant-ratio step toward
@@ -707,6 +727,7 @@ void clockfn() {
   struct tm tm;
   int current_hour;
   int first_frame = 1;
+  fprintf(stderr, "clock %s starting\n", CLOCK_VERSION);   /* -> journal */
   while(1) {
     t = time(NULL);
     tm = *localtime(&t);
@@ -714,6 +735,7 @@ void clockfn() {
     get_brightness ( tsl2561_address);       /* refresh brightness_target (~1/s) */
     step_brightness_ramp();                   /* glide gvaluef toward it, every tick */
     publish_brightness((int) round(gvaluef));  /* expose to telemetry (ADR 0003) */
+    publish_version();                         /* /run/clock/version, once */
 
     // convert to 12 hour clock
     current_hour = ((tm.tm_hour + 11) % 12 + 1);
@@ -769,8 +791,11 @@ void clockfn() {
 
     opterr = 0;
     int c;
-    while ((c = getopt (argc, argv, "hwbc:g:d:v:t")) != -1) {
+    while ((c = getopt (argc, argv, "hwbc:g:d:v:tV")) != -1) {
       switch (c) {
+      case 'V': // print build version and exit (before any SPI/GPIO access)
+        printf("clock %s\n", CLOCK_VERSION);
+        exit(0);
       case 'h': // show usage message
         debug_print("command line args got: %c\n",c);
         help_option = 1;
