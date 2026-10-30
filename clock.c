@@ -152,7 +152,8 @@ int const decimalpoint[DIGITS] = {11,7,3,27};
    the low tens) integer rounding makes the match coarse -- accepted.
    Calibrate by editing the file and restarting the clock (no rebuild): hold
    the display at a fixed level with `clock -t -g 100`, compare by eye, repeat;
-   re-check at `-g 600`. 2026-10-31: digit 2 = 0.7 matched at both. */
+   re-check at `-g 600` and again in daylight. 2026-10-31: digit 2 = 0.7 by
+   night, revised to 0.5 after a daylight check. */
 #define CLOCK_CONF "/etc/bbb-clock/clock.conf"
 static float digit_trim[DIGITS] = {1.0f, 1.0f, 1.0f, 1.0f};
 
