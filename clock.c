@@ -139,6 +139,25 @@ int const segments[DIGITS][SEGMENTS] = {{13,12,10,9,8,14,15},
 /* int dp3 = 16; */
 
 int const decimalpoint[DIGITS] = {11,7,3,27};
+
+/* Per-digit brightness trim, applied on top of the global grayscale level in
+   set_digit(). 1.0 = untouched. Exists because the hours-units display (digit
+   2) was replaced in Oct 2026 after a segment failed, and the new part is
+   visibly brighter than the three original, decade-old (lumen-depreciated)
+   displays. The TLC5947 has ONE current-set resistor per chip and no per-channel
+   dot correction, so the only lever is the 12-bit grayscale value itself.
+   Perceived mismatch is a ratio, hence a constant multiplier, not an offset.
+   At very low global levels (dark room, gvaluef in the low tens) integer
+   rounding makes the match coarse -- accepted.
+   Calibration 2026-10-31: candidates 0.5..0.9 built with -DDIGIT2_TRIM, judged
+   by eye against the other three digits with the display held at a fixed level
+   (`clock -t -g 100`, then re-checked at `-g 600`). 0.7 matched at both.
+   Re-do this if a display is replaced again (or as the new one ages). Override
+   at build time with -DDIGIT2_TRIM=0.xx to try candidates without editing. */
+#ifndef DIGIT2_TRIM
+#define DIGIT2_TRIM 0.7f
+#endif
+static const float digit_trim[DIGITS] = {1.0f, 1.0f, DIGIT2_TRIM, 1.0f};
 int const colon[2][2] = {{39,40},{43,41}};
 
 ///segment  A  B  C  D  E  F  G
@@ -395,9 +414,12 @@ int set_digit(int digit, int val, uint16_t greyscale) {
     debug_print("Error: digit  must be in the range 0-%d\n", DIGITS - 1 );
     exit(EXIT_FAILURE);}
   int i;
+  /* apply this digit's trim (see digit_trim[]); lrintf keeps 0..4095 intact
+     for trim 1.0 and can only scale down, so no 12-bit overflow is possible */
+  uint16_t trimmed = (uint16_t) lrintf((float) greyscale * digit_trim[digit]);
   for (i = 0; i < SEGMENTS ; i++) {
     //buf[digit.segment[i]] = f[val][i] & greyscale;
-    buf[segments[digit][i]] = f[val][i] & greyscale;
+    buf[segments[digit][i]] = f[val][i] & trimmed;
     //debug_print("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
   }
   // if we get here, we should return 0 as no errors detected
