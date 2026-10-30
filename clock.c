@@ -141,23 +141,50 @@ int const segments[DIGITS][SEGMENTS] = {{13,12,10,9,8,14,15},
 int const decimalpoint[DIGITS] = {11,7,3,27};
 
 /* Per-digit brightness trim, applied on top of the global grayscale level in
-   set_digit(). 1.0 = untouched. Exists because the hours-units display (digit
-   2) was replaced in Oct 2026 after a segment failed, and the new part is
-   visibly brighter than the three original, decade-old (lumen-depreciated)
-   displays. The TLC5947 has ONE current-set resistor per chip and no per-channel
-   dot correction, so the only lever is the 12-bit grayscale value itself.
-   Perceived mismatch is a ratio, hence a constant multiplier, not an offset.
-   At very low global levels (dark room, gvaluef in the low tens) integer
-   rounding makes the match coarse -- accepted.
-   Calibration 2026-10-31: candidates 0.5..0.9 built with -DDIGIT2_TRIM, judged
-   by eye against the other three digits with the display held at a fixed level
-   (`clock -t -g 100`, then re-checked at `-g 600`). 0.7 matched at both.
-   Re-do this if a display is replaced again (or as the new one ages). Override
-   at build time with -DDIGIT2_TRIM=0.xx to try candidates without editing. */
-#ifndef DIGIT2_TRIM
-#define DIGIT2_TRIM 0.7f
-#endif
-static const float digit_trim[DIGITS] = {1.0f, 1.0f, DIGIT2_TRIM, 1.0f};
+   set_digit(). 1.0 = untouched, which is the built-in default for every digit;
+   the actual values live in CLOCK_CONF, not here. Exists because the
+   hours-units display (digit 2) was replaced in Oct 2026 after a segment
+   failed, and the new part is visibly brighter than the three original,
+   decade-old (lumen-depreciated) displays. The TLC5947 has ONE current-set
+   resistor per chip and no per-channel dot correction, so the only lever is
+   the 12-bit grayscale value itself. Perceived mismatch is a ratio, hence a
+   multiplier, not an offset. At very low global levels (dark room, gvaluef in
+   the low tens) integer rounding makes the match coarse -- accepted.
+   Calibrate by editing the file and restarting the clock (no rebuild): hold
+   the display at a fixed level with `clock -t -g 100`, compare by eye, repeat;
+   re-check at `-g 600`. 2026-10-31: digit 2 = 0.7 matched at both. */
+#define CLOCK_CONF "/etc/bbb-clock/clock.conf"
+static float digit_trim[DIGITS] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+/* Read CLOCK_CONF if present. One `digit_trim_N = V` per line (N = digit
+   0-3, V clamped to 0..1); `#` comments, blank lines and `[section]` headers
+   are ignored so the file can share the telemetry.conf INI style. Unknown or
+   malformed lines are reported on stderr (-> journal) and skipped. A missing
+   or unreadable file just leaves every trim at 1.0. Never fatal: a typo in a
+   config file must not keep the clock dark. Called once, at startup. */
+static void load_config(void) {
+  FILE *fp = fopen(CLOCK_CONF, "r");
+  if (fp == NULL) return;                      /* optional file */
+  char line[128];
+  int lineno = 0;
+  while (fgets(line, sizeof line, fp) != NULL) {
+    lineno++;
+    char *p = line;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '#' || *p == '[' || *p == '\n' || *p == '\0') continue;
+    int d = -1, n = 0;
+    float v;
+    if (sscanf(p, "digit_trim_%d%n", &d, &n) == 1 && n > 0 &&
+        sscanf(p + n, " = %f", &v) == 1 && d >= 0 && d < DIGITS) {
+      if (v < 0.0f) v = 0.0f;
+      if (v > 1.0f) v = 1.0f;
+      digit_trim[d] = v;
+    } else {
+      fprintf(stderr, "%s:%d: ignoring unrecognised line: %s", CLOCK_CONF, lineno, line);
+    }
+  }
+  fclose(fp);
+}
 int const colon[2][2] = {{39,40},{43,41}};
 
 ///segment  A  B  C  D  E  F  G
@@ -725,6 +752,8 @@ void clockfn() {
   { 
     // set up ctrl-c signal handler
     signal(SIGINT, sigint_handler);
+
+    load_config();   /* optional /etc/bbb-clock/clock.conf: per-digit trim */
 
     //uint32_t speed = 1000000;
     //    uint8_t bpw = BPW;

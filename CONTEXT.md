@@ -42,10 +42,11 @@ reading (that is ambient lux).
 **Digit trim**:
 A fixed per-digit multiplier (0–1) applied to the display brightness before a
 digit's segments are written, so one physically brighter display can be matched
-to the others by eye. Compile-time table `digit_trim[]` in clock.c. Needed because
-the TLC5947 has one current-set resistor per chip and no per-channel dot
-correction, so the grayscale value is the only per-digit lever. Currently digit 2
-(hours units, replaced Oct 2026) = 0.7, calibrated 2026-10-31.
+to the others by eye. Read at startup from `/etc/bbb-clock/clock.conf`
+(`digit_trim_N = V`); built-in default 1.0 for every digit. Needed because the
+TLC5947 has one current-set resistor per chip and no per-channel dot correction,
+so the grayscale value is the only per-digit lever. Currently digit 2 (hours
+units, replaced Oct 2026) = 0.7, calibrated 2026-10-31.
 
 **Grayscale latch**:
 The on-chip register holding the grayscale values the driver is actively
