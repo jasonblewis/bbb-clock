@@ -156,9 +156,11 @@ int const decimalpoint[DIGITS] = {11,7,3,27};
    night, revised to 0.5 after a daylight check. */
 #define CLOCK_CONF "/etc/bbb-clock/clock.conf"
 static float digit_trim[DIGITS] = {1.0f, 1.0f, 1.0f, 1.0f};
+static float colon_trim = 1.0f;   /* same idea for the four colon LEDs */
 
 /* Read CLOCK_CONF if present. One `digit_trim_N = V` per line (N = digit
-   0-3, V clamped to 0..1); `#` comments, blank lines and `[section]` headers
+   0-3, V clamped to 0..1), plus an optional `colon_trim = V` for the colon
+   dots; `#` comments, blank lines and `[section]` headers
    are ignored so the file can share the telemetry.conf INI style. Unknown or
    malformed lines are reported on stderr (-> journal) and skipped. A missing
    or unreadable file just leaves every trim at 1.0. Never fatal: a typo in a
@@ -180,6 +182,10 @@ static void load_config(void) {
       if (v < 0.0f) v = 0.0f;
       if (v > 1.0f) v = 1.0f;
       digit_trim[d] = v;
+    } else if (sscanf(p, "colon_trim = %f", &v) == 1) {
+      if (v < 0.0f) v = 0.0f;
+      if (v > 1.0f) v = 1.0f;
+      colon_trim = v;
     } else {
       fprintf(stderr, "%s:%d: ignoring unrecognised line: %s", CLOCK_CONF, lineno, line);
     }
@@ -727,10 +733,11 @@ void clockfn() {
     //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
     // buf[colon[0][0]] = 1 * gvalue; // left top
     // buf[colon[0][1]] = 1 * gvalue; // left bottom
-    buf[colon[1][0]] = 1 * round(gvaluef); // 
-    buf[colon[1][1]] = 1 * round(gvaluef); //
+    uint16_t colon_g = (uint16_t) lrintf((float) round(gvaluef) * colon_trim);
+    buf[colon[1][0]] = colon_g; // 
+    buf[colon[1][1]] = colon_g; //
     if (tm.tm_hour >= 12) { // set colon digit for hour
-      buf[colon[0][0]] = 1 * round(gvaluef);
+      buf[colon[0][0]] = colon_g;
     } else {
       buf[colon[0][0]] = 0;
     };
@@ -754,7 +761,7 @@ void clockfn() {
     // set up ctrl-c signal handler
     signal(SIGINT, sigint_handler);
 
-    load_config();   /* optional /etc/bbb-clock/clock.conf: per-digit trim */
+    load_config();   /* optional /etc/bbb-clock/clock.conf: per-digit + colon trim */
 
     //uint32_t speed = 1000000;
     //    uint8_t bpw = BPW;

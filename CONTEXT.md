@@ -47,6 +47,7 @@ to the others by eye. Read at startup from `/etc/bbb-clock/clock.conf`
 TLC5947 has one current-set resistor per chip and no per-channel dot correction,
 so the grayscale value is the only per-digit lever. Currently digit 2 (hours
 units, replaced Oct 2026) = 0.5, calibrated 2026-10-31 (0.7 by night, 0.5 in daylight).
+A matching `colon_trim` key scales the four colon LEDs (0.7 since the hours digit was dimmed).
 
 **Grayscale latch**:
 The on-chip register holding the grayscale values the driver is actively
