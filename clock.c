@@ -139,6 +139,68 @@ int const segments[DIGITS][SEGMENTS] = {{13,12,10,9,8,14,15},
 /* int dp3 = 16; */
 
 int const decimalpoint[DIGITS] = {11,7,3,27};
+
+/* Per-digit brightness trim, applied on top of the global grayscale level in
+   set_digit(). 1.0 = untouched, which is the built-in default for every digit;
+   the actual values live in CLOCK_CONF, not here. Exists because the
+   hours-units display (digit 2) was replaced in Oct 2026 after a segment
+   failed, and the new part is visibly brighter than the three original,
+   decade-old (lumen-depreciated) displays. The TLC5947 has ONE current-set
+   resistor per chip and no per-channel dot correction, so the only lever is
+   the 12-bit grayscale value itself. Perceived mismatch is a ratio, hence a
+   multiplier, not an offset. At very low global levels (dark room, gvaluef in
+   the low tens) integer rounding makes the match coarse -- accepted.
+   Calibrate by editing the file and restarting the clock (no rebuild): hold
+   the display at a fixed level with `clock -t -g 100`, compare by eye, repeat;
+   re-check at `-g 600` and again in daylight. 2026-10-31: digit 2 = 0.7 by
+   night, revised to 0.5 after a daylight check. */
+#define CLOCK_CONF "/etc/bbb-clock/clock.conf"
+
+/* Build identity. The Makefile injects -DCLOCK_VERSION="<git describe --always
+   --dirty>"; in the on-device build dir (not a git checkout) it reads the
+   VERSION file that scripts/deploy-clock.sh ships with the source. Reported by
+   `clock -V`, logged once at startup (-> journal) and published to
+   /run/clock/version, so "what is actually running?" has an answer. */
+#ifndef CLOCK_VERSION
+#define CLOCK_VERSION "unknown"
+#endif
+static float digit_trim[DIGITS] = {1.0f, 1.0f, 1.0f, 1.0f};
+static float colon_trim = 1.0f;   /* same idea for the four colon LEDs */
+
+/* Read CLOCK_CONF if present. One `digit_trim_N = V` per line (N = digit
+   0-3, V clamped to 0..1), plus an optional `colon_trim = V` for the colon
+   dots; `#` comments, blank lines and `[section]` headers
+   are ignored so the file can share the telemetry.conf INI style. Unknown or
+   malformed lines are reported on stderr (-> journal) and skipped. A missing
+   or unreadable file just leaves every trim at 1.0. Never fatal: a typo in a
+   config file must not keep the clock dark. Called once, at startup. */
+static void load_config(void) {
+  FILE *fp = fopen(CLOCK_CONF, "r");
+  if (fp == NULL) return;                      /* optional file */
+  char line[128];
+  int lineno = 0;
+  while (fgets(line, sizeof line, fp) != NULL) {
+    lineno++;
+    char *p = line;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '#' || *p == '[' || *p == '\n' || *p == '\0') continue;
+    int d = -1, n = 0;
+    float v;
+    if (sscanf(p, "digit_trim_%d%n", &d, &n) == 1 && n > 0 &&
+        sscanf(p + n, " = %f", &v) == 1 && d >= 0 && d < DIGITS) {
+      if (v < 0.0f) v = 0.0f;
+      if (v > 1.0f) v = 1.0f;
+      digit_trim[d] = v;
+    } else if (sscanf(p, "colon_trim = %f", &v) == 1) {
+      if (v < 0.0f) v = 0.0f;
+      if (v > 1.0f) v = 1.0f;
+      colon_trim = v;
+    } else {
+      fprintf(stderr, "%s:%d: ignoring unrecognised line: %s", CLOCK_CONF, lineno, line);
+    }
+  }
+  fclose(fp);
+}
 int const colon[2][2] = {{39,40},{43,41}};
 
 ///segment  A  B  C  D  E  F  G
@@ -199,6 +261,7 @@ void usage(void) {
   printf("                 -b    show the current brightness detected by sensor\n");
   printf("                 -t    show the time\n");
   printf("                 -d <d> -v <v> -g <g>    set digit d to show value v at greyscale g\n");
+  printf("                 -V    print build version (git describe) and exit\n");
   printf("\n\n");
   printf("  if greyscale is set then LED brightness will be fixed at greyscale\n");
 }
@@ -395,9 +458,12 @@ int set_digit(int digit, int val, uint16_t greyscale) {
     debug_print("Error: digit  must be in the range 0-%d\n", DIGITS - 1 );
     exit(EXIT_FAILURE);}
   int i;
+  /* apply this digit's trim (see digit_trim[]); lrintf keeps 0..4095 intact
+     for trim 1.0 and can only scale down, so no 12-bit overflow is possible */
+  uint16_t trimmed = (uint16_t) lrintf((float) greyscale * digit_trim[digit]);
   for (i = 0; i < SEGMENTS ; i++) {
     //buf[digit.segment[i]] = f[val][i] & greyscale;
-    buf[segments[digit][i]] = f[val][i] & greyscale;
+    buf[segments[digit][i]] = f[val][i] & trimmed;
     //debug_print("digit: %d segment: %d f[%d][%d]: %d & greyscale: %d = %d\n", digit,i,val,i,f[val][i], greyscale,f[val][i] & greyscale  );
   }
   // if we get here, we should return 0 as no errors detected
@@ -597,22 +663,32 @@ int get_brightness(char *ipaddress) {
    torn value. A failure here is silently ignored: it must never affect the
    render loop. This establishes the convention "clock.c exposes internal state
    as one-value-per-file under /run/clock/". See ADR 0003 / issue #8. */
+static int publish_text(const char *tmp, const char *final, const char *text) {
+  int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0) return 0;               /* /run/clock absent (boot race) -> skip */
+  int len = (int) strlen(text);
+  int ok = (write(fd, text, len) == len);
+  close(fd);
+  return ok && rename(tmp, final) == 0;
+}
+
 static void publish_brightness(int level) {
   static int last = -1;
   if (level == last) return;
-  int fd = open("/run/clock/brightness.tmp", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  if (fd < 0) return;                 /* /run/clock absent (boot race) -> skip */
   char b[16];
   int len = snprintf(b, sizeof b, "%d\n", level);
-  if (len < 0) { close(fd); return; }               /* encoding error */
-  if (len >= (int) sizeof b) len = (int) sizeof b - 1; /* clamp on truncation */
-  if (write(fd, b, len) == len) {
-    close(fd);
-    if (rename("/run/clock/brightness.tmp", "/run/clock/brightness") == 0)
-      last = level;
-  } else {
-    close(fd);
-  }
+  if (len < 0 || len >= (int) sizeof b) return;     /* encoding error / truncated */
+  if (publish_text("/run/clock/brightness.tmp", "/run/clock/brightness", b))
+    last = level;
+}
+
+/* /run/clock/version: the CLOCK_VERSION string, written once the directory
+   exists (retried each tick until it succeeds, then never again). */
+static void publish_version(void) {
+  static int done = 0;
+  if (done) return;
+  done = publish_text("/run/clock/version.tmp", "/run/clock/version",
+                      CLOCK_VERSION "\n");
 }
 
 /* Nudge the driven level gvaluef one constant-ratio step toward
@@ -651,6 +727,7 @@ void clockfn() {
   struct tm tm;
   int current_hour;
   int first_frame = 1;
+  fprintf(stderr, "clock %s starting\n", CLOCK_VERSION);   /* -> journal */
   while(1) {
     t = time(NULL);
     tm = *localtime(&t);
@@ -658,6 +735,7 @@ void clockfn() {
     get_brightness ( tsl2561_address);       /* refresh brightness_target (~1/s) */
     step_brightness_ramp();                   /* glide gvaluef toward it, every tick */
     publish_brightness((int) round(gvaluef));  /* expose to telemetry (ADR 0003) */
+    publish_version();                         /* /run/clock/version, once */
 
     // convert to 12 hour clock
     current_hour = ((tm.tm_hour + 11) % 12 + 1);
@@ -677,10 +755,11 @@ void clockfn() {
     //buf[decimalpoint[0]] = (tm.tm_sec % 2) * gvalue;
     // buf[colon[0][0]] = 1 * gvalue; // left top
     // buf[colon[0][1]] = 1 * gvalue; // left bottom
-    buf[colon[1][0]] = 1 * round(gvaluef); // 
-    buf[colon[1][1]] = 1 * round(gvaluef); //
+    uint16_t colon_g = (uint16_t) lrintf((float) round(gvaluef) * colon_trim);
+    buf[colon[1][0]] = colon_g; // 
+    buf[colon[1][1]] = colon_g; //
     if (tm.tm_hour >= 12) { // set colon digit for hour
-      buf[colon[0][0]] = 1 * round(gvaluef);
+      buf[colon[0][0]] = colon_g;
     } else {
       buf[colon[0][0]] = 0;
     };
@@ -704,14 +783,19 @@ void clockfn() {
     // set up ctrl-c signal handler
     signal(SIGINT, sigint_handler);
 
+    load_config();   /* optional /etc/bbb-clock/clock.conf: per-digit + colon trim */
+
     //uint32_t speed = 1000000;
     //    uint8_t bpw = BPW;
     //    uint8_t mode = 0;
 
     opterr = 0;
     int c;
-    while ((c = getopt (argc, argv, "hwbc:g:d:v:t")) != -1) {
+    while ((c = getopt (argc, argv, "hwbc:g:d:v:tV")) != -1) {
       switch (c) {
+      case 'V': // print build version and exit (before any SPI/GPIO access)
+        printf("clock %s\n", CLOCK_VERSION);
+        exit(0);
       case 'h': // show usage message
         debug_print("command line args got: %c\n",c);
         help_option = 1;

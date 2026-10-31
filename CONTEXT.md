@@ -39,6 +39,23 @@ the *output* of the dimming loop. One level for the display, not per channel.
 _Avoid_: using it for a single channel's grayscale value, or for the raw sensor
 reading (that is ambient lux).
 
+**Digit trim**:
+A fixed per-digit multiplier (0–1) applied to the display brightness before a
+digit's segments are written, so one physically brighter display can be matched
+to the others by eye. Read at startup from `/etc/bbb-clock/clock.conf`
+(`digit_trim_N = V`); built-in default 1.0 for every digit. Needed because the
+TLC5947 has one current-set resistor per chip and no per-channel dot correction,
+so the grayscale value is the only per-digit lever. Currently digit 2 (hours
+units, replaced Oct 2026) = 0.5, calibrated 2026-10-31 (0.7 by night, 0.5 in daylight).
+A matching `colon_trim` key scales the four colon LEDs (0.5, settled 2026-10-31 after the hours digit was dimmed).
+
+**Build version**:
+The git identity (`git describe --always --dirty`) baked into the clock binary
+at compile time. Reported by `clock -V`, logged once at service start, and
+published as `/run/clock/version` (one-value-per-file convention, ADR 0003).
+Shipped to the on-device build dir as a `VERSION` file by `scripts/deploy-clock.sh`,
+since that directory is not a git checkout.
+
 **Grayscale latch**:
 The on-chip register holding the grayscale values the driver is actively
 displaying, held by the chip's internal oscillator until the next latch.
